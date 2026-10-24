@@ -14,3 +14,8 @@ src-tauri/binaries/
 src-tauri/gen/
 src-tauri/resources/
 src-tauri/target/
+
+# 本地打包产物
+/*.zip
+/output/
+
