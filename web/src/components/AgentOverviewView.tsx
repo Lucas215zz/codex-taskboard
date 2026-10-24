@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import "./AgentOverviewView.css";
 import { useTaskboardI18n, taskStatusLabel } from "../i18n";
@@ -22,81 +22,58 @@ interface AgentOverviewViewProps {
   onOpenTask: (task: Pick<Task, "identifier" | "projectId">) => void;
 }
 
-interface AgentGroup {
+interface FlowStage {
   key: string;
-  name: string;
-  actor: ActorIdentity | null;
-  tasks: Task[];
-  openCount: number;
-  doneCount: number;
-  lastActivityAt: string;
+  status: TaskStatus;
+  /** Verb shown on the connector leading into this stage. */
+  enterVerb: readonly [string, string];
+  caption: readonly [string, string];
 }
 
-const COLLAPSED_ROWS = 4;
-const LANE_WIDTH = 232;
-const LANE_GAP = 12;
+const STAGES: FlowStage[] = [
+  {
+    key: "todo",
+    status: "todo",
+    enterVerb: ["派单", "Dispatch"],
+    caption: ["等待 Agent 认领", "Waiting to be claimed"],
+  },
+  {
+    key: "in_progress",
+    status: "in_progress",
+    enterVerb: ["认领", "Claim"],
+    caption: ["Agent 正在执行", "Agent is working"],
+  },
+  {
+    key: "in_review",
+    status: "in_review",
+    enterVerb: ["提交", "Submit"],
+    caption: ["等待你验收", "Waiting for your review"],
+  },
+  {
+    key: "done",
+    status: "done",
+    enterVerb: ["验收", "Accept"],
+    caption: ["已交付", "Delivered"],
+  },
+];
 
-const STATUS_RANK: Record<TaskStatus, number> = {
-  blocked: 0,
-  in_progress: 1,
-  in_review: 2,
-  todo: 3,
-  backlog: 4,
-  done: 5,
-  canceled: 6,
-};
+const SIDE_LANES: FlowStage[] = [
+  {
+    key: "backlog",
+    status: "backlog",
+    enterVerb: ["立项", "Plan"],
+    caption: ["尚未进入流水线", "Not in the pipeline yet"],
+  },
+  {
+    key: "blocked",
+    status: "blocked",
+    enterVerb: ["卡住", "Stuck"],
+    caption: ["需要外部输入", "Needs external input"],
+  },
+];
 
 function isOpenTask(task: Task) {
   return task.status !== "done" && task.status !== "canceled";
-}
-
-function sortTasksForAgentView(left: Task, right: Task) {
-  const rank = STATUS_RANK[left.status] - STATUS_RANK[right.status];
-  if (rank !== 0) return rank;
-  return right.activityUpdatedAt.localeCompare(left.activityUpdatedAt);
-}
-
-function buildGroups(
-  tasks: Task[],
-  isAllProjects: boolean,
-  projectNames: Record<string, string>,
-): AgentGroup[] {
-  const buckets = new Map<string, { name: string; actor: ActorIdentity | null; tasks: Task[] }>();
-  for (const task of tasks) {
-    const key = isAllProjects
-      ? task.projectId
-      : `${task.assignee.type}:${task.assignee.id}`;
-    const name = isAllProjects
-      ? projectNames[task.projectId] ?? task.projectId
-      : task.assignee.name;
-    const actor = isAllProjects ? null : task.assignee;
-    const bucket = buckets.get(key);
-    if (bucket) bucket.tasks.push(task);
-    else buckets.set(key, { name, actor, tasks: [task] });
-  }
-
-  return [...buckets.entries()]
-    .map(([key, bucket]) => {
-      const sorted = [...bucket.tasks].sort(sortTasksForAgentView);
-      return {
-        key,
-        name: bucket.name,
-        actor: bucket.actor,
-        tasks: sorted,
-        openCount: sorted.filter(isOpenTask).length,
-        doneCount: sorted.filter((task) => task.status === "done").length,
-        lastActivityAt: sorted.reduce(
-          (latest, task) => (task.activityUpdatedAt > latest ? task.activityUpdatedAt : latest),
-          sorted[0]?.activityUpdatedAt ?? new Date(0).toISOString(),
-        ),
-      };
-    })
-    .sort((left, right) => (
-      right.openCount - left.openCount
-      || right.tasks.length - left.tasks.length
-      || Number(right.actor?.type === "agent") - Number(left.actor?.type === "agent")
-      || left.name.localeCompare(right.name)
-    ));
 }
 
 function localDayKey(value: Date) {
@@ -117,6 +94,21 @@ function timeLabel(value: string, locale: string, now = new Date()) {
   return `${day} ${time}`;
 }
 
+function durationLabel(
+  from: string,
+  now: number,
+  locale: string,
+  text: (chinese: string, english: string) => string,
+) {
+  const minutes = Math.max(0, Math.round((now - new Date(from).getTime()) / 60_000));
+  if (minutes < 1) return text("刚刚", "just now");
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "short" });
+  if (minutes < 60) return formatter.format(-minutes, "minute");
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return formatter.format(-hours, "hour");
+  return formatter.format(-Math.round(hours / 24), "day");
+}
+
 export function AgentOverviewView({
   isAllProjects,
   currentUser,
@@ -127,35 +119,33 @@ export function AgentOverviewView({
   onOpenTask,
 }: AgentOverviewViewProps) {
   const { language, locale, text } = useTaskboardI18n();
+  const taskBuckets = useMemo(() => {
+    const buckets = new Map<TaskStatus, Task[]>();
+    for (const status of ["backlog", "todo", "in_progress", "in_review", "blocked", "done"] as TaskStatus[]) {
+      buckets.set(status, []);
+    }
+    for (const task of tasks) {
+      buckets.get(task.status)?.push(task);
+    }
+    for (const bucket of buckets.values()) {
+      bucket.sort((left, right) => right.activityUpdatedAt.localeCompare(left.activityUpdatedAt));
+    }
+    return buckets;
+  }, [tasks]);
 
-  const groups = useMemo(
-    () => buildGroups(tasks, isAllProjects, projectNames),
-    [isAllProjects, projectNames, tasks],
-  );
-
-  const unreadCount = useMemo(
-    () => tasks.filter((task) => presentations[task.id]?.unread).length,
-    [presentations, tasks],
-  );
-  const runningCount = useMemo(
-    () => tasks.filter((task) => presentations[task.id]?.processing.running).length,
-    [presentations, tasks],
-  );
-  const openCount = useMemo(() => tasks.filter(isOpenTask).length, [tasks]);
-  const todayKey = localDayKey(new Date());
-  const todayUpdateCount = useMemo(
-    () => tasks.filter(
-      (task) => localDayKey(new Date(task.activityUpdatedAt)) === todayKey,
-    ).length,
-    [tasks, todayKey],
-  );
-  const lastUpdateAt = useMemo(
-    () => tasks.reduce(
-      (latest, task) => (task.activityUpdatedAt > latest ? task.activityUpdatedAt : latest),
-      "",
-    ),
-    [tasks],
-  );
+  const now = Date.now();
+  const todayKey = localDayKey(new Date(now));
+  const unreadCount = tasks.filter((task) => presentations[task.id]?.unread).length;
+  const openCount = tasks.filter(isOpenTask).length;
+  const enteredToday = tasks.filter(
+    (task) => localDayKey(new Date(task.createdAt)) === todayKey,
+  ).length;
+  const deliveredToday = (taskBuckets.get("done") ?? []).filter(
+    (task) => localDayKey(new Date(task.activityUpdatedAt)) === todayKey,
+  ).length;
+  const blockedCount = (taskBuckets.get("blocked") ?? []).length;
+  const inFlight = (taskBuckets.get("in_progress") ?? []).length
+    + (taskBuckets.get("in_review") ?? []).length;
 
   const statusLine = automation.activeCount > 0
     ? text(
@@ -163,16 +153,11 @@ export function AgentOverviewView({
         `Auto-claim · every ${automation.intervalMinutes ?? 0} min`,
       )
     : text("自动认领未开启", "Auto-claim is off");
-  const activityLine = text(
-    `今日 ${todayUpdateCount} 次更新 · 运行中 ${runningCount}`,
-    `${todayUpdateCount} updates today · ${runningCount} running`,
-  );
-  const laneSpan = groups.length * LANE_WIDTH + Math.max(0, groups.length - 1) * LANE_GAP;
 
   return (
     <div className="agent-overview">
       <div className="agent-overview-canvas">
-        <div className="agent-overview-hero">
+        <header className="agent-flow-hero">
           <div className="agent-owner">
             <ActorAvatar actor={currentUser} className="agent-owner-avatar" />
             <div className="agent-owner-copy">
@@ -184,158 +169,203 @@ export function AgentOverviewView({
             </span>
           </div>
 
-          <div className="agent-hero-chips">
-            <span>
-              <i className="agent-chip-mark" aria-hidden="true" />
-              {text(`待处理 ${openCount}`, `${openCount} open`)}
-            </span>
-            <span>
-              <i className="agent-chip-mark is-up" aria-hidden="true" />
-              {lastUpdateAt
-                ? text(`最近更新 ${timeLabel(lastUpdateAt, locale)}`, `Last update ${timeLabel(lastUpdateAt, locale)}`)
-                : text("暂无更新", "No updates yet")}
-            </span>
-          </div>
+          <div className="agent-flow-arrow" aria-hidden="true" />
 
           <div className="agent-hub">
             <img className="agent-hub-mark" src="codex-agent-logo.png" alt="" aria-hidden="true" />
             <div className="agent-hub-copy">
               <strong>Codex Agent</strong>
               <span>{statusLine}</span>
-              <small>{activityLine}</small>
             </div>
             <span className={`agent-hub-state${automation.activeCount > 0 ? " is-on" : ""}`}>
               {automation.activeCount > 0 ? text("已在岗", "On duty") : text("待机", "Standby")}
             </span>
           </div>
-          <span className="agent-hero-stem" aria-hidden="true" />
-        </div>
 
-        <div className="agent-overview-caption">
-          <span>{isAllProjects ? text("业务线", "Business lines") : text("执行者", "Assignees")}</span>
-          <i aria-hidden="true" />
-          <span>{text(`${groups.length} 条`, `${groups.length} lanes`)}</span>
-        </div>
+          <dl className="agent-flow-kpis">
+            <div>
+              <dt>{text("今日进入", "Entered today")}</dt>
+              <dd>{enteredToday}</dd>
+            </div>
+            <div>
+              <dt>{text("流转中", "In flight")}</dt>
+              <dd>{inFlight}</dd>
+            </div>
+            <div>
+              <dt>{text("今日交付", "Delivered today")}</dt>
+              <dd>{deliveredToday}</dd>
+            </div>
+            <div className={blockedCount > 0 ? "is-alert" : undefined}>
+              <dt>{text("卡住", "Stuck")}</dt>
+              <dd>{blockedCount}</dd>
+            </div>
+          </dl>
+        </header>
 
-        <div className="agent-overview-lanes-wrap">
-          <div className="agent-overview-scroll">
-            <div
-              className="agent-overview-columns"
-              style={{ minWidth: `${laneSpan}px` }}
-            >
-              <span className="agent-lane-rail" aria-hidden="true" />
-              <div className="agent-overview-lanes">
-                {groups.map((group) => (
-                  <AgentColumn
-                    key={group.key}
-                    group={group}
+        <div className="agent-flow-scroll">
+          <div className="agent-flow-track">
+            {STAGES.map((stage, index) => {
+              const stageTasks = taskBuckets.get(stage.status) ?? [];
+              return (
+                <div className="agent-flow-segment" key={stage.key}>
+                  {index > 0 && (
+                    <div className="agent-flow-connector" aria-hidden="true">
+                      <span className="agent-flow-connector-verb">
+                        {text(stage.enterVerb[0], stage.enterVerb[1])}
+                      </span>
+                      <span
+                        className={`agent-flow-connector-line${
+                          stageTasks.some((task) => presentations[task.id]?.processing.running)
+                            ? " is-flowing"
+                            : ""
+                        }`}
+                      >
+                        <i />
+                      </span>
+                    </div>
+                  )}
+                  <FlowStageColumn
+                    stage={stage}
+                    index={index + 1}
+                    tasks={stageTasks}
                     presentations={presentations}
-                  language={language}
+                    language={language}
                     locale={locale}
                     text={text}
+                    now={now}
+                    projectNames={projectNames}
+                    isAllProjects={isAllProjects}
                     onOpenTask={onOpenTask}
                   />
-                ))}
-                {groups.length === 0 && (
-                  <div className="agent-overview-empty">
-                    {text("当前范围内还没有议题", "No issues in this scope yet")}
-                  </div>
-                )}
-              </div>
-            </div>
+                </div>
+              );
+            })}
           </div>
         </div>
+
+        <div className="agent-flow-side">
+          {SIDE_LANES.map((lane) => (
+            <FlowStageColumn
+              key={lane.key}
+              stage={lane}
+              tasks={taskBuckets.get(lane.status) ?? []}
+              side
+              presentations={presentations}
+              language={language}
+              locale={locale}
+              text={text}
+              now={now}
+              projectNames={projectNames}
+              isAllProjects={isAllProjects}
+              onOpenTask={onOpenTask}
+            />
+          ))}
+        </div>
+
+        <footer className="agent-flow-foot">
+          {text(
+            `${tasks.length} 个议题 · ${openCount} 个未结束 · 自动认领${
+              automation.activeCount > 0 ? "已开启" : "未开启"
+            }`,
+            `${tasks.length} issues · ${openCount} open · auto-claim ${
+              automation.activeCount > 0 ? "on" : "off"
+            }`,
+          )}
+        </footer>
       </div>
     </div>
   );
 }
 
-function AgentColumn({
-  group,
+function FlowStageColumn({
+  stage,
+  index,
+  tasks,
+  side = false,
   presentations,
   language,
   locale,
   text,
+  now,
+  projectNames,
+  isAllProjects,
   onOpenTask,
 }: {
-  group: AgentGroup;
+  stage: FlowStage;
+  index?: number;
+  tasks: Task[];
+  side?: boolean;
   presentations: Record<string, TaskCardPresentation>;
   language: TaskboardLanguage;
   locale: string;
   text: (chinese: string, english: string) => string;
+  now: number;
+  projectNames: Record<string, string>;
+  isAllProjects: boolean;
   onOpenTask: (task: Pick<Task, "identifier" | "projectId">) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const visibleTasks = expanded ? group.tasks : group.tasks.slice(0, COLLAPSED_ROWS);
-  const hiddenCount = group.tasks.length - visibleTasks.length;
+  const oldest = tasks.reduce<string | null>(
+    (value, task) => (!value || task.activityUpdatedAt < value ? task.activityUpdatedAt : value),
+    null,
+  );
 
   return (
-    <section className="agent-column">
-      <div className="agent-column-node" aria-hidden="true" />
-      <header className="agent-column-header">
-        {group.actor
-          ? <ActorAvatar actor={group.actor} className="agent-column-avatar" />
-          : <span className="agent-column-dot" aria-hidden="true" />}
-        <strong>{group.name}</strong>
-        <span className="agent-column-time">{timeLabel(group.lastActivityAt, locale)}</span>
+    <section
+      className={`agent-stage status-${stage.status}${side ? " is-side" : ""}`}
+      aria-label={taskStatusLabel(language, stage.status)}
+    >
+      <header className="agent-stage-header">
+        <span className="agent-stage-dot" aria-hidden="true" />
+        {index !== undefined && <span className="agent-stage-index">{index}</span>}
+        <strong>{taskStatusLabel(language, stage.status)}</strong>
+        <b>{tasks.length}</b>
       </header>
+      <p className="agent-stage-caption">{text(stage.caption[0], stage.caption[1])}</p>
 
-      <div className="agent-column-metrics">
-        <div>
-          <span>{text("未完成", "Open")}</span>
-          <strong>{group.openCount}</strong>
-        </div>
-        <div>
-          <span>{text("已完成", "Done")}</span>
-          <strong>{group.doneCount}</strong>
-        </div>
-        <div>
-          <span>{text("全部", "Total")}</span>
-          <strong>{group.tasks.length}</strong>
-        </div>
-      </div>
-
-      <div className="agent-column-rows">
-        {visibleTasks.map((task) => (
-          <button
-            type="button"
-            className={`agent-row status-${task.status}`}
-            key={task.id}
-            onClick={() => onOpenTask(task)}
-            title={task.title}
-          >
-            <span className="agent-row-dot" aria-hidden="true" />
-            <span className="agent-row-id">{task.externalKey ?? task.identifier}</span>
-            <span className="agent-row-title">{task.title}</span>
-            <span className="agent-row-meta">
-              {presentations[task.id]?.processing.running
-                ? text("运行中", "Running")
-                : taskStatusLabel(language, task.status)}
-            </span>
-          </button>
-        ))}
-        {group.tasks.length === 0 && (
-          <div className="agent-column-empty">{text("暂无议题", "No issues")}</div>
+      <div className="agent-stage-list">
+        {tasks.map((task) => {
+          const running = presentations[task.id]?.processing.running;
+          const unread = presentations[task.id]?.unread;
+          return (
+            <button
+              type="button"
+              className={`agent-flow-card${running ? " is-running" : ""}${unread ? " is-unread" : ""}`}
+              key={task.id}
+              onClick={() => onOpenTask(task)}
+              title={task.title}
+            >
+              <span className="agent-flow-card-top">
+                <span className="agent-flow-card-id">{task.externalKey ?? task.identifier}</span>
+                {running && (
+                  <span className="agent-flow-card-running">{text("执行中", "Running")}</span>
+                )}
+                {!running && unread && (
+                  <span className="agent-flow-card-unread">{text("未读", "Unread")}</span>
+                )}
+                <time>{timeLabel(task.activityUpdatedAt, locale)}</time>
+              </span>
+              <span className="agent-flow-card-title">{task.title}</span>
+              <span className="agent-flow-card-foot">
+                <ActorAvatar actor={task.assignee} className="agent-flow-card-avatar" />
+                <span className="agent-flow-card-assignee">{task.assignee.name}</span>
+                {isAllProjects && (
+                  <span className="agent-flow-card-project">
+                    {projectNames[task.projectId] ?? task.projectId}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+        {tasks.length === 0 && (
+          <div className="agent-stage-empty">{text("此阶段暂无议题", "Nothing in this stage")}</div>
         )}
       </div>
 
-      {hiddenCount > 0 && (
-        <button
-          type="button"
-          className="agent-column-more"
-          onClick={() => setExpanded(true)}
-        >
-          {text(`展开全部 ${group.tasks.length} 个`, `Show all ${group.tasks.length}`)}
-        </button>
-      )}
-      {expanded && group.tasks.length > COLLAPSED_ROWS && (
-        <button
-          type="button"
-          className="agent-column-more"
-          onClick={() => setExpanded(false)}
-        >
-          {text("收起", "Collapse")}
-        </button>
+      {oldest && (
+        <p className="agent-stage-age">
+          {text("最久滞留", "Oldest")} {durationLabel(oldest, now, locale, text)}
+        </p>
       )}
     </section>
   );
