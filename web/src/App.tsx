@@ -54,6 +54,7 @@ import {
   assigneeTargetForActor,
 } from "./actors";
 import { BoardColumn } from "./components/BoardColumn";
+import { AgentOverviewView } from "./components/AgentOverviewView";
 import type { AiChatOpenThreadRequest } from "./components/AiChat";
 import {
   BoardCardDisplayMenu,
@@ -149,7 +150,7 @@ import { createRevisionPoller, createRevisionWebSocketClient, getRevisionPolling
 
 type ConnectionState = "connecting" | "live" | "reconnecting";
 type Theme = "light" | "dark";
-type BoardView = "readme" | "dashboard" | "issues" | "list" | "gantt";
+type BoardView = "readme" | "dashboard" | "agents" | "issues" | "list" | "gantt";
 type DetailSourceScroll =
   | { projectId: string; view: "issues"; status: TaskStatus; scrollTop: number; scrollLeft: number }
   | { projectId: string; view: "list"; scrollTop: number };
@@ -324,7 +325,7 @@ function issueReadStorageKey(mode: string, task: Pick<Task, "id" | "projectId">)
 
 function readProjectBoardView(projectId: string): BoardView {
   const view = taskboardStorage.getItem(`${PROJECT_VIEW_KEY_PREFIX}${projectId}`);
-  return view === "readme" || view === "dashboard" || view === "list" || view === "gantt" || view === "issues"
+  return view === "readme" || view === "dashboard" || view === "agents" || view === "list" || view === "gantt" || view === "issues"
     ? view
     : "issues";
 }
@@ -1040,6 +1041,20 @@ export function App() {
     ? undefined
     : deviceWorkspacePaths[selectedProjectId];
   const selectedProjectAutomation = projectAutomations[selectedProjectId];
+  const agentOverviewAutomation = useMemo(() => {
+    const records = isAllProjects
+      ? Object.values(projectAutomations)
+      : selectedProjectAutomation
+        ? [selectedProjectAutomation]
+        : [];
+    const active = records.filter(
+      (record) => record.enabledByUser && record.status === "ACTIVE",
+    );
+    return {
+      activeCount: active.length,
+      intervalMinutes: active[0]?.intervalMinutes ?? null,
+    };
+  }, [isAllProjects, projectAutomations, selectedProjectAutomation]);
   const automationProjectContext = useMemo<Partial<CodexProjectIdentity> & {
     unavailableReason: string | null;
   }>(() => {
@@ -3649,6 +3664,14 @@ export function App() {
               {text("仪表盘", "Dashboard")}
             </button>
             <button
+              className={`view-tab${boardView === "agents" ? " active" : ""}`}
+              type="button"
+              aria-pressed={boardView === "agents"}
+              onClick={() => selectBoardView("agents")}
+            >
+              {text("Agent 总览", "Agent overview")}
+            </button>
+            <button
               className={`view-tab${boardView === "issues" ? " active" : ""}`}
               type="button"
               aria-pressed={boardView === "issues"}
@@ -3793,6 +3816,7 @@ export function App() {
         )}
 
         {boardView !== "readme"
+          && boardView !== "agents"
           && hasLoadedTasks
           && tasks.length === 0
           && selectedProject
@@ -3854,6 +3878,17 @@ export function App() {
             onSummaryAnimationStart={markDashboardSummaryAnimationStarted}
             onOpenTask={openTaskDetail}
             onOpenConversation={openTaskConversation}
+          />
+        ) : boardView === "agents" && (selectedProject || isAllProjects) ? (
+          <AgentOverviewView
+            key={selectedProjectId}
+            isAllProjects={isAllProjects}
+            currentUser={currentUser}
+            tasks={tasks}
+            presentations={taskPresentations}
+            projectNames={projectNames}
+            automation={agentOverviewAutomation}
+            onOpenTask={openTaskDetail}
           />
         ) : boardView === "list" ? (
           <IssueListView
