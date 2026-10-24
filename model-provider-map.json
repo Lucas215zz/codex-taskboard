@@ -1,0 +1,86 @@
+[
+  {
+    "id": "gpt-6.1-sol",
+    "sourceId": "gpt-6.1-sol",
+    "provider": "codex_local_access",
+    "baseUrl": ""
+  },
+  {
+    "id": "gpt-6-astra",
+    "sourceId": "gpt-6-astra",
+    "provider": "codex_local_access",
+    "baseUrl": ""
+  },
+  {
+    "id": "gpt-6-sol",
+    "sourceId": "gpt-6-sol",
+    "provider": "codex_local_access",
+    "baseUrl": ""
+  },
+  {
+    "id": "gpt-6-luna",
+    "sourceId": "gpt-6-luna",
+    "provider": "codex_local_access",
+    "baseUrl": ""
+  },
+  {
+    "id": "gpt-5.6-sol",
+    "sourceId": "gpt-5.6-sol",
+    "provider": "codex_local_access",
+    "baseUrl": ""
+  },
+  {
+    "id": "gpt-5.6-terra",
+    "sourceId": "gpt-5.6-terra",
+    "provider": "codex_local_access",
+    "baseUrl": ""
+  },
+  {
+    "id": "gpt-5.6-luna",
+    "sourceId": "gpt-5.6-luna",
+    "provider": "codex_local_access",
+    "baseUrl": ""
+  },
+  {
+    "id": "gpt-5.5",
+    "sourceId": "gpt-5.5",
+    "provider": "codex_local_access",
+    "baseUrl": ""
+  },
+  {
+    "id": "claude-opus-4-7",
+    "sourceId": "claude-opus-4-7",
+    "provider": "kkidc",
+    "baseUrl": "https://ai-api.kkidc.com/v1"
+  },
+  {
+    "id": "gpt-5.5-wb",
+    "sourceId": "gpt-5.5",
+    "provider": "agentaipilot",
+    "baseUrl": "https://agentaipilot.com/v1"
+  },
+  {
+    "id": "glm-5.3-flashx",
+    "sourceId": "glm-5.3-flashx",
+    "provider": "zhipu",
+    "baseUrl": "https://open.bigmodel.cn/api/paas/v4"
+  },
+  {
+    "id": "MiniMax-M3",
+    "sourceId": "MiniMax-M3",
+    "provider": "minimax",
+    "baseUrl": "https://api.minimaxi.com/v1"
+  },
+  {
+    "id": "MiniMax-M3.1-Flash",
+    "sourceId": "MiniMax-M3.1-Flash",
+    "provider": "minimax",
+    "baseUrl": "https://api.minimaxi.com/v1"
+  },
+  {
+    "id": "deepseek-flash",
+    "sourceId": "deepseek-flash",
+    "provider": "deepseek",
+    "baseUrl": "https://api.deepseek.com"
+  }
+]
