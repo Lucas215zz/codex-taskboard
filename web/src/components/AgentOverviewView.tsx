@@ -10,12 +10,11 @@ import { getClientStorageEntries, updateClientStorageEntry, updateProjectMetric 
 import {
   DEPARTMENT_STORAGE_KEY,
   DEFAULT_DEPARTMENT_SETTINGS,
-  UNCLASSIFIED_DEPARTMENT_ID,
+  UNASSIGNED_DEPARTMENT_ID,
   departmentName,
-  departmentOfLabels,
   parseDepartmentSettings,
   resolveDepartments,
-  resolveLabelDepartments,
+  resolveProjectDepartments,
   serializeDepartmentSettings,
 } from "../departments";
 import type { Department, DepartmentSettings } from "../departments";
@@ -23,6 +22,12 @@ import type { Department, DepartmentSettings } from "../departments";
 export interface AgentAutomationSummary {
   activeCount: number;
   intervalMinutes: number | null;
+}
+
+export interface ProjectAutomationSummary {
+  enabled: boolean;
+  status: "ACTIVE" | "PAUSED";
+  intervalMinutes: number;
 }
 
 interface AgentOverviewViewProps {
@@ -34,13 +39,16 @@ interface AgentOverviewViewProps {
   presentations: Record<string, TaskCardPresentation>;
   projectNames: Record<string, string>;
   automation: AgentAutomationSummary;
+  projectAutomations: Record<string, ProjectAutomationSummary>;
+  automationUnavailableReason: string | null;
   onOpenTask: (task: Pick<Task, "identifier" | "projectId">) => void;
   onSelectProject: (projectId: string) => void;
   onProjectMetricUpdated: (project: Project) => void;
+  onSetProjectAutomation: (projectId: string, enabled: boolean) => void;
 }
 
 const DAY_MS = 86_400_000;
-const RECENT_TASKS_PER_TEAM = 4;
+const RECENT_TASKS_PER_PROJECT = 4;
 const HIDE_NAMES_KEY = "taskboard:hideProjectNames";
 const PRIORITY_ORDER: Record<string, number> = {
   urgent: 0,
@@ -58,21 +66,25 @@ interface PipelineCounts {
   total: number;
 }
 
-interface TeamSummary {
+interface ProjectSummary {
   projectId: string;
   name: string;
+  departmentId: string;
   counts: PipelineCounts;
   activeTasks: Task[];
   quietDays: number;
+  automation: ProjectAutomationSummary | null;
 }
 
-interface UnitSummary {
+interface DepartmentSummary {
   id: string;
   name: string;
   nameEn: string;
-  isUnclassified: boolean;
+  isUnassigned: boolean;
   counts: PipelineCounts;
-  teams: TeamSummary[];
+  projects: ProjectSummary[];
+  automationActiveCount: number;
+  automationIntervalMinutes: number | null;
 }
 
 function emptyCounts(): PipelineCounts {
@@ -158,11 +170,12 @@ function Pipeline({
   );
 }
 
-/* ---------- team (project) leaf ---------- */
+/* ---------- project leaf ---------- */
 
-interface TeamRowProps {
-  team: TeamSummary;
-  project: Project | undefined;
+interface ProjectRowProps {
+  project: ProjectSummary;
+  projectRecord: Project | undefined;
+  departments: Department[];
   language: TaskboardLanguage;
   text: (zh: string, en: string) => string;
   hideNames: boolean;
@@ -171,11 +184,13 @@ interface TeamRowProps {
   onOpenTask: (task: Pick<Task, "identifier" | "projectId">) => void;
   onSelectProject: (projectId: string) => void;
   onProjectMetricUpdated: (project: Project) => void;
+  onAssignDepartment: (projectId: string, departmentId: string) => void;
 }
 
-function TeamRow({
-  team,
+function ProjectRow({
   project,
+  projectRecord,
+  departments,
   language,
   text,
   hideNames,
@@ -184,17 +199,18 @@ function TeamRow({
   onOpenTask,
   onSelectProject,
   onProjectMetricUpdated,
-}: TeamRowProps) {
+  onAssignDepartment,
+}: ProjectRowProps) {
   const [editing, setEditing] = useState(false);
   const [editLabel, setEditLabel] = useState("");
   const [editValue, setEditValue] = useState("");
 
   const displayName = hideNames
     ? `${text("项目", "Project")} ${String.fromCharCode(65 + displayIndex)}`
-    : team.name;
+    : project.name;
 
-  const metricLabel = project?.mainMetricLabel ?? null;
-  const metricValue = project?.mainMetricValue ?? null;
+  const metricLabel = projectRecord?.mainMetricLabel ?? null;
+  const metricValue = projectRecord?.mainMetricValue ?? null;
   const hasCustomMetric = Boolean(metricValue && metricLabel);
 
   const startEdit = useCallback(() => {
@@ -204,12 +220,12 @@ function TeamRow({
   }, [metricLabel, metricValue]);
 
   const saveEdit = useCallback(async () => {
-    if (!project) return;
+    if (!projectRecord) return;
     const label = editLabel.trim() || null;
     const value = editValue.trim() || null;
     setEditing(false);
     try {
-      const updated = await updateProjectMetric(project.id, {
+      const updated = await updateProjectMetric(projectRecord.id, {
         mainMetricLabel: label,
         mainMetricValue: value,
       });
@@ -217,7 +233,7 @@ function TeamRow({
     } catch {
       // Silently revert — the next refresh restores the true state.
     }
-  }, [editLabel, editValue, project, onProjectMetricUpdated]);
+  }, [editLabel, editValue, projectRecord, onProjectMetricUpdated]);
 
   return (
     <div className="org-team">
@@ -226,15 +242,47 @@ function TeamRow({
         <button
           type="button"
           className="org-team-name"
-          onClick={() => onSelectProject(team.projectId)}
+          onClick={() => onSelectProject(project.projectId)}
           title={text("打开项目", "Open project")}
         >
           {displayName}
         </button>
+        <select
+          className="org-dept-select"
+          value={project.departmentId}
+          onChange={(event) => onAssignDepartment(project.projectId, event.target.value)}
+          title={text("分配部门", "Assign department")}
+          aria-label={text("分配部门", "Assign department")}
+        >
+          <option value={UNASSIGNED_DEPARTMENT_ID}>
+            {text("未分配", "Unassigned")}
+          </option>
+          {departments.map((department) => (
+            <option key={department.id} value={department.id}>
+              {departmentName(department, language)}
+            </option>
+          ))}
+        </select>
         <span className="org-team-activity">
-          {text("动静", "last")} {relativeDayLabel(team.quietDays, language)}
+          {text("动静", "last")} {relativeDayLabel(project.quietDays, language)}
         </span>
-        <Pipeline counts={team.counts} text={text} />
+        {project.automation && (
+          <span
+            className={`org-automation-badge${project.automation.enabled ? " is-on" : ""}`}
+            title={project.automation.enabled
+              ? text(
+                `自动认领每 ${project.automation.intervalMinutes} 分钟`,
+                `Auto-claim every ${project.automation.intervalMinutes} min`,
+              )
+              : text("自动认领未开启", "Auto-claim is off")}
+          >
+            <i aria-hidden="true" />
+            {project.automation.enabled
+              ? text("自动认领", "auto")
+              : text("手动", "manual")}
+          </span>
+        )}
+        <Pipeline counts={project.counts} text={text} />
         <div className="org-team-metric">
           {editing ? (
             <div className="org-metric-edit">
@@ -284,9 +332,9 @@ function TeamRow({
         </div>
       </div>
 
-      {team.activeTasks.length > 0 && (
+      {project.activeTasks.length > 0 && (
         <ul className="org-tasklist">
-          {team.activeTasks.map((task) => {
+          {project.activeTasks.map((task) => {
             const presentation = presentations[task.id];
             const unread = presentation?.unread ?? false;
             return (
@@ -311,36 +359,30 @@ function TeamRow({
   );
 }
 
-/* ---------- department settings ---------- */
+/* ---------- organization settings ---------- */
 
 interface DepartmentSettingsPanelProps {
-  labels: string[];
+  projects: ProjectSummary[];
   departments: Department[];
   settings: DepartmentSettings;
   language: TaskboardLanguage;
   text: (zh: string, en: string) => string;
+  onAssign: (projectId: string, departmentId: string) => void;
   onChange: (settings: DepartmentSettings) => void;
   onClose: () => void;
 }
 
 function DepartmentSettingsPanel({
-  labels,
+  projects,
   departments,
   settings,
   language,
   text,
+  onAssign,
   onChange,
   onClose,
 }: DepartmentSettingsPanelProps) {
   const [newName, setNewName] = useState("");
-  const effective = resolveLabelDepartments(settings);
-
-  const assign = (label: string, departmentId: string) => {
-    const map = { ...settings.map };
-    // Keep an explicit empty value so "未归类" overrides the built-in default.
-    map[label] = departmentId;
-    onChange({ ...settings, map });
-  };
 
   const addDepartment = () => {
     const name = newName.trim();
@@ -353,14 +395,26 @@ function DepartmentSettingsPanel({
     });
   };
 
+  const removeDepartment = (departmentId: string) => {
+    const map: Record<string, string> = {};
+    for (const [projectId, value] of Object.entries(settings.map)) {
+      if (value !== departmentId) map[projectId] = value;
+    }
+    onChange({
+      ...settings,
+      map,
+      extra: settings.extra.filter((department) => department.id !== departmentId),
+    });
+  };
+
   return (
     <section className="org-settings">
       <header className="org-settings-head">
-        <strong>{text("组织架构设置", "Org settings")}</strong>
+        <strong>{text("公司组织", "Company organization")}</strong>
         <span>
           {text(
-            "把任务标签归到部门；没有部门的任务会落在「未归类」",
-            "Assign task labels to departments; tasks without one land in Unclassified",
+            "把项目分给部门；部门里的任务由该部门的自动认领接手",
+            "Assign projects to departments; each department claims its own tasks",
           )}
         </span>
         <button type="button" className="org-settings-close" onClick={onClose}>
@@ -368,14 +422,16 @@ function DepartmentSettingsPanel({
         </button>
       </header>
       <div className="org-settings-grid">
-        {labels.map((label) => (
-          <label className="org-settings-row" key={label}>
-            <span className="org-settings-label">{label}</span>
+        {projects.map((project) => (
+          <label className="org-settings-row" key={project.projectId}>
+            <span className="org-settings-label">{project.name}</span>
             <select
-              value={effective.get(label) ?? ""}
-              onChange={(event) => assign(label, event.target.value)}
+              value={project.departmentId}
+              onChange={(event) => onAssign(project.projectId, event.target.value)}
             >
-              <option value="">{text("未归类", "Unclassified")}</option>
+              <option value={UNASSIGNED_DEPARTMENT_ID}>
+                {text("未分配", "Unassigned")}
+              </option>
               {departments.map((department) => (
                 <option key={department.id} value={department.id}>
                   {departmentName(department, language)}
@@ -396,6 +452,26 @@ function DepartmentSettingsPanel({
           {text("新建部门", "Add department")}
         </button>
       </div>
+      {settings.extra.length > 0 && (
+        <div className="org-settings-departments">
+          <span className="org-settings-label">
+            {text("自定义部门", "Custom departments")}
+          </span>
+          {settings.extra.map((department) => (
+            <span className="org-settings-chip" key={department.id}>
+              {departmentName(department, language)}
+              <button
+                type="button"
+                onClick={() => removeDepartment(department.id)}
+                title={text("删除部门", "Delete department")}
+                aria-label={text("删除部门", "Delete department")}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -411,9 +487,12 @@ export function AgentOverviewView({
   presentations,
   projectNames,
   automation,
+  projectAutomations,
+  automationUnavailableReason,
   onOpenTask,
   onSelectProject,
   onProjectMetricUpdated,
+  onSetProjectAutomation,
 }: AgentOverviewViewProps) {
   const { language, text } = useTaskboardI18n();
   const now = Date.now();
@@ -453,7 +532,17 @@ export function AgentOverviewView({
   }, []);
 
   const departments = useMemo(() => resolveDepartments(settings), [settings]);
-  const labelDepartments = useMemo(() => resolveLabelDepartments(settings), [settings]);
+  const projectDepartments = useMemo(
+    () => resolveProjectDepartments(settings),
+    [settings],
+  );
+
+  const assignProject = useCallback((projectId: string, departmentId: string) => {
+    const map = { ...settings.map };
+    if (departmentId === UNASSIGNED_DEPARTMENT_ID) delete map[projectId];
+    else map[projectId] = departmentId;
+    persistSettings({ ...settings, map });
+  }, [persistSettings, settings]);
 
   const scopedTasks = useMemo(() => (
     isAllProjects || !selectedProjectId
@@ -461,123 +550,110 @@ export function AgentOverviewView({
       : tasks.filter((task) => task.projectId === selectedProjectId)
   ), [isAllProjects, selectedProjectId, tasks]);
 
-  const units = useMemo<UnitSummary[]>(() => {
-    const unitMap = new Map<string, UnitSummary>();
-    const teamsByUnit = new Map<string, Map<string, TeamSummary>>();
-    const latestByProject = new Map<string, string>();
+  const scopedProjectIds = useMemo(() => (
+    isAllProjects || !selectedProjectId
+      ? new Set(projects.map((project) => project.id))
+      : new Set([selectedProjectId])
+  ), [isAllProjects, selectedProjectId, projects]);
 
+  const summaries = useMemo<ProjectSummary[]>(() => {
+    const byProject = new Map<string, Task[]>();
     for (const task of scopedTasks) {
-      const activityAt = task.activityUpdatedAt > task.updatedAt
-        ? task.activityUpdatedAt
-        : task.updatedAt;
-      const knownLatest = latestByProject.get(task.projectId);
-      if (!knownLatest || activityAt > knownLatest) {
-        latestByProject.set(task.projectId, activityAt);
-      }
-
-      const departmentId = departmentOfLabels(task.labels, labelDepartments)
-        ?? UNCLASSIFIED_DEPARTMENT_ID;
-      let unit = unitMap.get(departmentId);
-      if (!unit) {
-        const definition = departments.find((candidate) => candidate.id === departmentId);
-        unit = {
-          id: departmentId,
-          name: departmentId === UNCLASSIFIED_DEPARTMENT_ID
-            ? text("未归类", "Unclassified")
-            : definition?.name ?? departmentId,
-          nameEn: departmentId === UNCLASSIFIED_DEPARTMENT_ID
-            ? "Unclassified"
-            : definition?.nameEn ?? departmentId,
-          isUnclassified: departmentId === UNCLASSIFIED_DEPARTMENT_ID,
-          counts: emptyCounts(),
-          teams: [],
-        };
-        unitMap.set(departmentId, unit);
-      }
-      addCounts(unit.counts, countPipeline([task], now));
-
-      let teams = teamsByUnit.get(departmentId);
-      if (!teams) {
-        teams = new Map<string, TeamSummary>();
-        teamsByUnit.set(departmentId, teams);
-      }
-      let team = teams.get(task.projectId);
-      if (!team) {
-        team = {
-          projectId: task.projectId,
-          name: projectNames[task.projectId] ?? task.projectId,
-          counts: emptyCounts(),
-          activeTasks: [],
-          quietDays: 0,
-        };
-        teams.set(task.projectId, team);
-        unit.teams.push(team);
-      }
-      addCounts(team.counts, countPipeline([task], now));
-      if (isOpenTask(task)) team.activeTasks.push(task);
+      const bucket = byProject.get(task.projectId);
+      if (bucket) bucket.push(task);
+      else byProject.set(task.projectId, [task]);
     }
 
-    for (const unit of unitMap.values()) {
-      for (const team of unit.teams) {
-        team.activeTasks = team.activeTasks
+    const result: ProjectSummary[] = [];
+    for (const project of projects) {
+      if (!scopedProjectIds.has(project.id)) continue;
+      const projectTasks = byProject.get(project.id) ?? [];
+      const latest = projectTasks.reduce<string | null>((value, task) => {
+        const candidate = task.activityUpdatedAt > task.updatedAt
+          ? task.activityUpdatedAt
+          : task.updatedAt;
+        return !value || candidate > value ? candidate : value;
+      }, null);
+      result.push({
+        projectId: project.id,
+        name: projectNames[project.id] ?? project.name,
+        departmentId: projectDepartments.get(project.id) ?? UNASSIGNED_DEPARTMENT_ID,
+        counts: countPipeline(projectTasks, now),
+        activeTasks: projectTasks
+          .filter(isOpenTask)
           .sort((left, right) => (
             (PRIORITY_ORDER[left.priority] ?? 9) - (PRIORITY_ORDER[right.priority] ?? 9)
             || left.updatedAt.localeCompare(right.updatedAt)
           ))
-          .slice(0, RECENT_TASKS_PER_TEAM);
-        team.quietDays = daysSince(latestByProject.get(team.projectId) ?? null, now);
+          .slice(0, RECENT_TASKS_PER_PROJECT),
+        quietDays: daysSince(latest, now),
+        automation: projectAutomations[project.id] ?? null,
+      });
+    }
+    return result;
+  }, [scopedTasks, scopedProjectIds, projects, projectNames, projectDepartments, projectAutomations, now]);
+
+  const departmentsSummary = useMemo<DepartmentSummary[]>(() => {
+    const unitMap = new Map<string, DepartmentSummary>();
+
+    for (const project of summaries) {
+      let unit = unitMap.get(project.departmentId);
+      if (!unit) {
+        const definition = departments.find((candidate) => candidate.id === project.departmentId);
+        unit = {
+          id: project.departmentId,
+          name: project.departmentId === UNASSIGNED_DEPARTMENT_ID
+            ? text("未分配", "Unassigned")
+            : definition?.name ?? project.departmentId,
+          nameEn: project.departmentId === UNASSIGNED_DEPARTMENT_ID
+            ? "Unassigned"
+            : definition?.nameEn ?? project.departmentId,
+          isUnassigned: project.departmentId === UNASSIGNED_DEPARTMENT_ID,
+          counts: emptyCounts(),
+          projects: [],
+          automationActiveCount: 0,
+          automationIntervalMinutes: null,
+        };
+        unitMap.set(project.departmentId, unit);
       }
-      unit.teams.sort((left, right) => (
+      addCounts(unit.counts, project.counts);
+      unit.projects.push(project);
+      if (project.automation?.enabled) {
+        unit.automationActiveCount += 1;
+        unit.automationIntervalMinutes = project.automation.intervalMinutes;
+      }
+    }
+
+    for (const unit of unitMap.values()) {
+      unit.projects.sort((left, right) => (
         right.counts.total - left.counts.total
         || right.counts.inProgress - left.counts.inProgress
+        || left.name.localeCompare(right.name)
       ));
     }
 
     return [...unitMap.values()].sort((left, right) => (
-      (left.isUnclassified ? 1 : 0) - (right.isUnclassified ? 1 : 0)
-      || right.counts.waiting - left.counts.waiting
+      (left.isUnassigned ? 1 : 0) - (right.isUnassigned ? 1 : 0)
+      || right.automationActiveCount - left.automationActiveCount
       || right.counts.inProgress - left.counts.inProgress
       || right.counts.total - left.counts.total
     ));
-  }, [scopedTasks, projectNames, labelDepartments, departments, now, text]);
-
-  const labelsInUse = useMemo(() => {
-    const labels = new Set<string>();
-    for (const task of scopedTasks) {
-      for (const label of task.labels) labels.add(label);
-    }
-    return [...labels].sort((left, right) => left.localeCompare(right));
-  }, [scopedTasks]);
+  }, [summaries, departments, text]);
 
   const projectOrder = useMemo(() => {
     const order = new Map<string, number>();
-    for (const unit of units) {
-      for (const team of unit.teams) {
-        if (!order.has(team.projectId)) order.set(team.projectId, order.size);
+    for (const unit of departmentsSummary) {
+      for (const project of unit.projects) {
+        if (!order.has(project.projectId)) order.set(project.projectId, order.size);
       }
     }
     return order;
-  }, [units]);
-
-  const waitingOnYou = useMemo(() => scopedTasks
-    .filter(isWaitingTask)
-    .sort((left, right) => {
-      const leftUnread = presentations[left.id]?.unread ? 1 : 0;
-      const rightUnread = presentations[right.id]?.unread ? 1 : 0;
-      return rightUnread - leftUnread
-        || left.activityUpdatedAt.localeCompare(right.activityUpdatedAt);
-    }), [presentations, scopedTasks]);
+  }, [departmentsSummary]);
 
   const runningCount = scopedTasks.filter((task) => task.status === "in_progress").length;
   const openCount = scopedTasks.filter(isOpenTask).length;
-  const unreadCount = waitingOnYou.filter((task) => presentations[task.id]?.unread).length;
-  const doneLast7 = scopedTasks.filter(
-    (task) => task.status === "done" && daysSince(task.updatedAt, now) <= 7,
-  ).length;
-  const activeUnits = units.filter((unit) => unit.counts.inProgress > 0).length;
-  const unclassified = units.find((unit) => unit.isUnclassified);
-  const stalledUnits = units.filter(
-    (unit) => unit.teams.some((team) => team.quietDays >= 7),
+  const unassignedCount = summaries.filter(
+    (project) => project.departmentId === UNASSIGNED_DEPARTMENT_ID,
   ).length;
 
   const statusLine = automation.activeCount > 0
@@ -586,6 +662,13 @@ export function AgentOverviewView({
         `Auto-claim · every ${automation.intervalMinutes ?? 0} min`,
       )
     : text("自动认领未开启", "Auto-claim is off");
+
+  const toggleDepartmentAutomation = useCallback((unit: DepartmentSummary) => {
+    const enable = unit.automationActiveCount < unit.projects.length;
+    for (const project of unit.projects) {
+      onSetProjectAutomation(project.projectId, enable);
+    }
+  }, [onSetProjectAutomation]);
 
   return (
     <div className="agent-overview orgchart">
@@ -598,10 +681,10 @@ export function AgentOverviewView({
             <span className="org-brand-sub">{text("公司组织架构", "Company Org Chart")}</span>
           </div>
           <div className="org-topbar-stats">
-            <span className="org-stat">{units.length} {text("个部门", "units")}</span>
+            <span className="org-stat">{departmentsSummary.length} {text("个部门", "units")}</span>
+            <span className="org-stat">{summaries.length} {text("个项目", "projects")}</span>
             <span className="org-stat">{scopedTasks.length} {text("个议题", "issues")}</span>
             <span className="org-stat">{openCount} {text("个未结束", "open")}</span>
-            <span className="org-stat">{activeUnits} {text("个部门在干活", "active")}</span>
           </div>
           <div className="org-topbar-right">
             <span className="org-time">{timeLabel(nowDate)}</span>
@@ -609,7 +692,7 @@ export function AgentOverviewView({
               type="button"
               className={`org-toggle${settingsOpen ? " is-on" : ""}`}
               onClick={() => setSettingsOpen((previous) => !previous)}
-              title={text("组织架构设置", "Org settings")}
+              title={text("公司组织", "Company organization")}
             >
               {text("组织设置", "Org setup")}
             </button>
@@ -617,9 +700,9 @@ export function AgentOverviewView({
               type="button"
               className={`org-toggle${hideNames ? " is-on" : ""}`}
               onClick={toggleHideNames}
-              title={hideNames ? text("显示项目名", "Show names") : text("隐藏项目名", "Hide names")}
+              title={hideNames ? text("显示项目", "Show names") : text("隐藏项目", "Hide names")}
             >
-              {hideNames ? text("隐藏项目名", "Hide names") : text("显示项目名", "Show names")}
+              {hideNames ? text("隐藏项目", "Hide names") : text("显示项目", "Show names")}
             </button>
           </div>
         </header>
@@ -633,13 +716,9 @@ export function AgentOverviewView({
               <span>{text("创始人 · CEO · 拍板定方向", "Founder · CEO · Sets direction")}</span>
             </div>
             <div className="org-lead-badge">
-              {waitingOnYou.length > 0 ? (
-                <span className="org-badge-hot">
-                  {text(`等你 ${waitingOnYou.length} 件`, `${waitingOnYou.length} waiting`)}
-                </span>
-              ) : (
-                <span className="org-badge-calm">{text("没有等你的事", "Nothing waiting")}</span>
-              )}
+              <span className="org-badge-calm">
+                {text(`${summaries.length} 个项目`, `${summaries.length} projects`)}
+              </span>
             </div>
           </div>
           <div className="org-lead-agent">
@@ -669,51 +748,88 @@ export function AgentOverviewView({
 
         {/* departments */}
         <section className="org-tree">
-          {units.map((unit) => (
-            <article
-              className={`org-unit${unit.isUnclassified ? " is-unclassified" : ""}`}
-              key={unit.id}
-            >
-              <div className="org-unit-rail" aria-hidden="true">
-                <span className="org-unit-node" />
-              </div>
-              <div className="org-unit-card">
-                <header className="org-unit-head">
-                  <div className="org-unit-title">
-                    <strong>{language === "zh" ? unit.name : unit.nameEn}</strong>
-                    <span>{unit.counts.total} {text("项", "items")}</span>
-                  </div>
-                  <Pipeline counts={unit.counts} text={text} />
-                </header>
-                <div className="org-teams">
-                  {unit.teams.map((team) => (
-                    <TeamRow
-                      key={`${unit.id}-${team.projectId}`}
-                      team={team}
-                      project={projects.find((candidate) => candidate.id === team.projectId)}
-                      language={language}
-                      text={text}
-                      hideNames={hideNames}
-                      displayIndex={projectOrder.get(team.projectId) ?? 0}
-                      presentations={presentations}
-                      onOpenTask={onOpenTask}
-                      onSelectProject={onSelectProject}
-                      onProjectMetricUpdated={onProjectMetricUpdated}
-                    />
-                  ))}
+          {departmentsSummary.map((unit) => {
+            const automationOn = unit.automationActiveCount > 0;
+            const automationAll = unit.projects.length > 0
+              && unit.automationActiveCount === unit.projects.length;
+            return (
+              <article
+                className={`org-unit${unit.isUnassigned ? " is-unassigned" : ""}`}
+                key={unit.id}
+              >
+                <div className="org-unit-rail" aria-hidden="true">
+                  <span className="org-unit-node" />
                 </div>
-              </div>
-            </article>
-          ))}
+                <div className="org-unit-card">
+                  <header className="org-unit-head">
+                    <div className="org-unit-title">
+                      <strong>{language === "zh" ? unit.name : unit.nameEn}</strong>
+                      <span>{unit.projects.length} {text("个项目", "projects")}</span>
+                    </div>
+                    <div
+                      className={`org-unit-automation${automationOn ? " is-on" : ""}`}
+                      title={unit.automationIntervalMinutes
+                        ? text(
+                            `自动认领每 ${unit.automationIntervalMinutes} 分钟`,
+                            `Auto-claim every ${unit.automationIntervalMinutes} min`,
+                          )
+                        : text("自动认领未开启", "Auto-claim is off")}
+                    >
+                      <i aria-hidden="true" />
+                      <span>
+                        {unit.automationActiveCount}/{unit.projects.length} {text("自动认领", "auto")}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`org-automation-toggle${automationAll ? " is-on" : ""}`}
+                      onClick={() => toggleDepartmentAutomation(unit)}
+                      disabled={Boolean(automationUnavailableReason)}
+                      title={automationUnavailableReason ?? (
+                        automationAll
+                          ? text("关闭本部门自动认领", "Turn off auto-claim for this department")
+                          : text("开启本部门自动认领", "Turn on auto-claim for this department")
+                      )}
+                    >
+                      {automationAll
+                        ? text("本部门自动认领已开", "Auto-claim on")
+                        : text("开启本部门自动认领", "Turn on auto-claim")}
+                    </button>
+                    <Pipeline counts={unit.counts} text={text} />
+                  </header>
+                  <div className="org-teams">
+                    {unit.projects.map((project) => (
+                      <ProjectRow
+                        key={`${unit.id}-${project.projectId}`}
+                        project={project}
+                        projectRecord={projects.find((candidate) => candidate.id === project.projectId)}
+                        departments={departments}
+                        language={language}
+                        text={text}
+                        hideNames={hideNames}
+                        displayIndex={projectOrder.get(project.projectId) ?? 0}
+                        presentations={presentations}
+                        onOpenTask={onOpenTask}
+                        onSelectProject={onSelectProject}
+                        onProjectMetricUpdated={onProjectMetricUpdated}
+                        onAssignDepartment={assignProject}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
         </section>
 
         {settingsOpen && (
           <DepartmentSettingsPanel
-            labels={labelsInUse}
+            projects={summaries}
             departments={departments}
             settings={settings}
             language={language}
             text={text}
+            onAssign={assignProject}
             onChange={persistSettings}
             onClose={() => setSettingsOpen(false)}
           />
@@ -721,20 +837,13 @@ export function AgentOverviewView({
 
         {/* footer summary */}
         <footer className="org-foot">
-          <span>{doneLast7} {text("件 7 天交付", "shipped in 7d")}</span>
+          <span>{summaries.length} {text("个项目已归部", "projects assigned")}</span>
           <i aria-hidden="true">·</i>
-          <span>
-            {waitingOnYou.length} {text("件等你", "waiting on you")}
-            {unreadCount > 0 && (
-              <em className="org-unread">({unreadCount} {text("未读", "unread")})</em>
-            )}
-          </span>
+          <span>{unassignedCount} {text("个项目未分配", "unassigned")}</span>
           <i aria-hidden="true">·</i>
-          <span>{stalledUnits} {text("个部门停滞", "stalled")}</span>
+          <span>{automation.activeCount} {text("个项目自动认领中", "auto-claim on")}</span>
           <i aria-hidden="true">·</i>
-          <span>
-            {unclassified?.counts.total ?? 0} {text("件未归类", "unclassified")}
-          </span>
+          <span>{runningCount} {text("件处理中", "running")}</span>
         </footer>
       </div>
     </div>

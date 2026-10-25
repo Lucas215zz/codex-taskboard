@@ -4,7 +4,7 @@
  * Hierarchy: company (founder + CEO Agent) -> departments (functions)
  * -> projects (teams) -> tasks.
  *
- * Departments are derived from task labels, so every node on the chart
+ * Departments are assigned by the founder, so every node on the chart
  * maps to real work. The spine on the left carries the hierarchy: the
  * founder sits on top, each department hangs off it as a node, and each
  * project hangs off its department as a leaf.
@@ -336,7 +336,7 @@
   background: var(--org-panel);
 }
 
-.org-unit.is-unclassified .org-unit-card {
+.org-unit.is-unassigned .org-unit-card {
   border-style: dashed;
   border-color: var(--org-line-strong);
 }
@@ -365,6 +365,63 @@
 .org-unit-title span {
   color: var(--org-dim);
   font-size: 10px;
+}
+
+/* ---------- department automation ---------- */
+
+.org-unit-automation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--org-line);
+  border-radius: 999px;
+  color: var(--org-dim);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.org-unit-automation i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--org-faint);
+}
+
+.org-unit-automation.is-on {
+  border-color: rgba(63, 185, 80, 0.3);
+  color: var(--success);
+}
+
+.org-unit-automation.is-on i {
+  background: var(--success);
+  box-shadow: 0 0 6px rgba(63, 185, 80, 0.6);
+}
+
+.org-automation-toggle {
+  padding: 4px 10px;
+  border: 1px solid var(--org-line);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--org-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.org-automation-toggle:hover:not(:disabled) {
+  border-color: var(--org-accent);
+  color: var(--org-accent);
+}
+
+.org-automation-toggle.is-on {
+  border-color: rgba(63, 185, 80, 0.4);
+  color: var(--success);
+}
+
+.org-automation-toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 /* ---------- pipeline ---------- */
@@ -467,6 +524,53 @@
   color: var(--org-faint);
   font-size: 10px;
   white-space: nowrap;
+}
+
+/* ---------- project department assignment ---------- */
+
+.org-dept-select {
+  max-width: 130px;
+  padding: 2px 6px;
+  border: 1px solid var(--org-line);
+  border-radius: 6px;
+  background: var(--org-panel);
+  color: var(--org-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.org-dept-select:hover {
+  border-color: var(--org-accent);
+  color: var(--org-accent);
+}
+
+.org-automation-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--org-line);
+  border-radius: 999px;
+  color: var(--org-faint);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.org-automation-badge i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--org-faint);
+}
+
+.org-automation-badge.is-on {
+  border-color: rgba(63, 185, 80, 0.3);
+  color: var(--success);
+}
+
+.org-automation-badge.is-on i {
+  background: var(--success);
 }
 
 .org-team-metric {
@@ -708,6 +812,42 @@
   display: flex;
   gap: 6px;
   margin-top: 10px;
+}
+
+.org-settings-departments {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.org-settings-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 9px;
+  border: 1px solid var(--org-line);
+  border-radius: 999px;
+  color: var(--org-dim);
+  font-size: 11px;
+}
+
+.org-settings-chip button {
+  padding: 0 5px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--org-faint);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.org-settings-chip button:hover {
+  background: var(--org-line);
+  color: var(--org-hot);
 }
 
 .org-settings-new input {

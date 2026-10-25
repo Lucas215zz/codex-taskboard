@@ -55,6 +55,7 @@ import {
 } from "./actors";
 import { BoardColumn } from "./components/BoardColumn";
 import { AgentOverviewView } from "./components/AgentOverviewView";
+import type { ProjectAutomationSummary } from "./components/AgentOverviewView";
 import type { AiChatOpenThreadRequest } from "./components/AiChat";
 import {
   BoardCardDisplayMenu,
@@ -250,6 +251,10 @@ interface AutomationRequestContext {
   workspacePath: string;
   remoteProjects: CodexProjectIdentity[];
   skillPath: string;
+}
+
+interface AutomationProjectContext extends Partial<CodexProjectIdentity> {
+  unavailableReason: string | null;
 }
 
 interface QueuedProjectAutomationSave {
@@ -1055,20 +1060,36 @@ export function App() {
       intervalMinutes: active[0]?.intervalMinutes ?? null,
     };
   }, [isAllProjects, projectAutomations, selectedProjectAutomation]);
-  const automationProjectContext = useMemo<Partial<CodexProjectIdentity> & {
-    unavailableReason: string | null;
-  }>(() => {
-    if (!embedded || window.parent === window) {
-      return { unavailableReason: text("仅可在 Codex App 中使用", "Available only in the Codex app") };
+  const automationUnavailableMessage = useCallback((): string | null => {
+    if (!embedded) {
+      return text("仅可在 Codex App 中使用", "Available only in the Codex app");
+    }
+    if (window.parent === window) {
+      return text(
+        "自动认领需要 Codex App 的内嵌面板；当前是独立页面，请用 launch-codex-cdp.ps1 启动 Codex",
+        "Auto-claim needs the panel embedded in the Codex app; this page is standalone, so start Codex with launch-codex-cdp.ps1",
+      );
     }
     if (!isLocalTaskboardOrigin(new URL(document.baseURI).origin)) {
-      return { unavailableReason: text("仅本地任务面板可用", "Available only on the local taskboard") };
+      return text("仅本地任务面板可用", "Available only on the local taskboard");
     }
-    if (!selectedProject) {
+    return null;
+  }, [embedded, text]);
+  const resolveAutomationProjectContext = useCallback((
+    projectId: string | null,
+  ): AutomationProjectContext => {
+    const unavailableReason = automationUnavailableMessage();
+    if (unavailableReason) {
+      return { unavailableReason };
+    }
+    const project = projectId
+      ? projects.find((candidate) => candidate.id === projectId) ?? null
+      : null;
+    if (!project) {
       return { unavailableReason: text("请先选择项目", "Select a project first") };
     }
 
-    const savedIdentity = projectCodexIdentities[selectedProject.id];
+    const savedIdentity = projectCodexIdentities[project.id];
     if (savedIdentity?.codexProjectKind === "remote") {
       const liveProject = hostContext?.projects?.find(
         (project) => project.id === savedIdentity.codexProjectId,
@@ -1092,9 +1113,9 @@ export function App() {
       return { ...savedIdentity, unavailableReason: null };
     }
 
-    const effectiveCodexProjectId = selectedProject.id === GLOBAL_PROJECT_ID
+    const effectiveCodexProjectId = project.id === GLOBAL_PROJECT_ID
       ? hostContext?.projectId
-      : selectedProject.id;
+      : project.id;
     const directCodexProject = hostContext?.projects?.find(
       (project) => project.id === effectiveCodexProjectId,
     );
@@ -1103,8 +1124,8 @@ export function App() {
         ? directCodexProject.workspacePath
         : undefined
     )
-      ?? deviceWorkspacePaths[selectedProject.id]
-      ?? selectedProject.workspacePath
+      ?? deviceWorkspacePaths[project.id]
+      ?? project.workspacePath
       ?? directCodexProject?.workspacePath
       ?? (
         directCodexProject && hostContext?.projectId === effectiveCodexProjectId
@@ -1143,37 +1164,45 @@ export function App() {
     hostContext,
     manageTaskboardSkillPath,
     projectCodexIdentities,
-    selectedProject,
-    text,
+    projects,
+    automationUnavailableMessage,
   ]);
-  const automationRequestContext = useMemo<AutomationRequestContext | null>(() => {
+  const automationProjectContext = useMemo(
+    () => resolveAutomationProjectContext(selectedProject?.id ?? null),
+    [resolveAutomationProjectContext, selectedProject],
+  );
+  const buildAutomationRequestContext = useCallback((projectId: string): AutomationRequestContext | null => {
+    const project = projects.find((candidate) => candidate.id === projectId) ?? null;
+    if (!project) return null;
+    const projectContext = resolveAutomationProjectContext(projectId);
     if (
-      !selectedProject
-      || !automationProjectContext.codexProjectId
-      || !automationProjectContext.codexProjectKind
-      || !automationProjectContext.codexHostId
-      || !automationProjectContext.workspacePath
+      !projectContext.codexProjectId
+      || !projectContext.codexProjectKind
+      || !projectContext.codexHostId
+      || !projectContext.workspacePath
       || !manageTaskboardSkillPath
     ) return null;
     return {
-      taskboardProjectId: selectedProject.id,
-      codexProjectId: automationProjectContext.codexProjectId,
-      codexProjectKind: automationProjectContext.codexProjectKind,
-      codexHostId: automationProjectContext.codexHostId,
-      projectName: selectedProject.name,
-      workspacePath: automationProjectContext.workspacePath,
-      remoteProjects: automationProjectContext.codexProjectKind === "remote"
+      taskboardProjectId: project.id,
+      codexProjectId: projectContext.codexProjectId,
+      codexProjectKind: projectContext.codexProjectKind,
+      codexHostId: projectContext.codexHostId,
+      projectName: project.id === GLOBAL_PROJECT_ID
+        ? text("临时任务", "Temporary tasks")
+        : project.name,
+      workspacePath: projectContext.workspacePath,
+      remoteProjects: projectContext.codexProjectKind === "remote"
         ? (hostContext?.projects ?? [])
-            .filter((project) => (
-              project.projectKind === "remote"
-              && project.hostId === automationProjectContext.codexHostId
-              && typeof project.workspacePath === "string"
+            .filter((candidate) => (
+              candidate.projectKind === "remote"
+              && candidate.hostId === projectContext.codexHostId
+              && typeof candidate.workspacePath === "string"
             ))
-            .map((project) => ({
-              codexProjectId: project.id,
+            .map((candidate) => ({
+              codexProjectId: candidate.id,
               codexProjectKind: "remote" as const,
-              codexHostId: project.hostId!,
-              workspacePath: project.workspacePath!,
+              codexHostId: candidate.hostId!,
+              workspacePath: candidate.workspacePath!,
             }))
             .sort((left, right) => (
               left.workspacePath.localeCompare(right.workspacePath)
@@ -1182,7 +1211,10 @@ export function App() {
         : [],
       skillPath: manageTaskboardSkillPath,
     };
-  }, [automationProjectContext, hostContext, manageTaskboardSkillPath, selectedProject]);
+  }, [hostContext, manageTaskboardSkillPath, projects, resolveAutomationProjectContext, text]);
+  const automationRequestContext = useMemo<AutomationRequestContext | null>(() => (
+    selectedProject ? buildAutomationRequestContext(selectedProject.id) : null
+  ), [buildAutomationRequestContext, selectedProject]);
   const referenceTasks = useMemo(() => [...tasks, ...archivedTasks], [archivedTasks, tasks]);
   const detailTask = detailTaskIdentifier
     ? referenceTasks.find((task) => task.identifier === detailTaskIdentifier) ?? null
@@ -1594,6 +1626,77 @@ export function App() {
     automationRequestContext,
     drainQueuedAutomationSaves,
   ]);
+
+  const setProjectAutomationEnabled = useCallback(async (
+    projectId: string,
+    enabled: boolean,
+  ) => {
+    const context = buildAutomationRequestContext(projectId);
+    if (!context) {
+      setAutomationError(text(
+        "该项目还没有在 Codex 中映射目录，无法开启自动认领",
+        "This project has no Codex directory mapping yet, so auto-claim cannot start.",
+      ));
+      return;
+    }
+    const stored = projectAutomationsRef.current[projectId];
+    let options: ProjectAutomationOptions;
+    if (stored) {
+      options = {
+        enabledByUser: enabled,
+        quotaAware: stored.quotaAware,
+        intervalMinutes: stored.intervalMinutes,
+        model: stored.model,
+        reasoningEffort: stored.reasoningEffort,
+      };
+    } else {
+      const projectContext = resolveAutomationProjectContext(projectId);
+      const identity = projectContext.codexProjectId
+        ? {
+            codexProjectId: projectContext.codexProjectId,
+            codexProjectKind: projectContext.codexProjectKind ?? "local" as const,
+            codexHostId: projectContext.codexHostId ?? "local",
+            workspacePath: projectContext.workspacePath!,
+          }
+        : null;
+      const catalog = await getAiChatCatalog(projectId, undefined, identity).catch(() => null);
+      const defaultModel = catalog?.models?.[0];
+      if (!defaultModel) {
+        setAutomationError(text(
+          "无法读取该项目的可用模型，自动认领未开启",
+          "Could not read the available models for this project, so auto-claim was not started.",
+        ));
+        return;
+      }
+      options = {
+        enabledByUser: enabled,
+        quotaAware: false,
+        intervalMinutes: 5,
+        model: defaultModel.slug,
+        reasoningEffort: defaultModel.defaultReasoningEffort,
+      };
+    }
+    queuedAutomationSavesRef.current.set(projectId, { projectId, context, options });
+    if (!automationRequestInFlightRef.current) {
+      void drainQueuedAutomationSaves(projectId);
+    }
+  }, [buildAutomationRequestContext, drainQueuedAutomationSaves, resolveAutomationProjectContext]);
+
+  const agentOverviewProjectAutomations = useMemo<Record<string, ProjectAutomationSummary>>(() => {
+    const result: Record<string, ProjectAutomationSummary> = {};
+    for (const [projectId, record] of Object.entries(projectAutomations)) {
+      result[projectId] = {
+        enabled: record.enabledByUser && record.status === "ACTIVE",
+        status: record.status,
+        intervalMinutes: record.intervalMinutes,
+      };
+    }
+    return result;
+  }, [projectAutomations]);
+
+  const agentOverviewAutomationUnavailableReason = useMemo(() => {
+    return automationUnavailableMessage();
+  }, [automationUnavailableMessage]);
 
   function openTaskDetail(task: Pick<Task, "identifier" | "projectId">) {
     const fullTask = tasksRef.current.find((candidate) => candidate.identifier === task.identifier);
@@ -3895,6 +3998,8 @@ export function App() {
             presentations={taskPresentations}
             projectNames={projectNames}
             automation={agentOverviewAutomation}
+            projectAutomations={agentOverviewProjectAutomations}
+            automationUnavailableReason={agentOverviewAutomationUnavailableReason}
             onOpenTask={openTaskDetail}
             onSelectProject={(projectId) => {
               const choice = projectChoices.find((project) => project.id === projectId);
@@ -3905,6 +4010,9 @@ export function App() {
               setProjects((previous) => previous.map(
                 (candidate) => candidate.id === project.id ? project : candidate,
               ));
+            }}
+            onSetProjectAutomation={(projectId, enabled) => {
+              void setProjectAutomationEnabled(projectId, enabled);
             }}
           />
         ) : boardView === "list" ? (
