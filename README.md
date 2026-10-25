@@ -61,6 +61,48 @@ ln -s /absolute/path/to/codex-taskboard/skills/manage-taskboard \
 
 The desktop app keeps this same directory synchronized with its bundled Skill. The Skill teaches Codex to inspect an issue, move it to `in_progress`, use optimistic versions, verify the work, and then move it to `in_review`; it moves the issue to `done` only after the user explicitly confirms acceptance or asks to mark it complete.
 
+## Set up project auto-claim in the Codex App
+
+Taskboard can create a scheduled Codex automation for each project so Codex checks for actionable `todo` issues at a fixed interval. Configure it from the embedded Taskboard panel in the Codex App; you do not need to copy and paste the full automation prompt manually.
+
+### Configuration
+
+1. Open the embedded Taskboard panel in the Codex App. The project automation entry is not available in the standalone browser page.
+2. Select the Taskboard project and confirm that it is mapped to the correct Codex project and workspace.
+3. Open **Automation** in the project header and expand **Auto-claim tasks**.
+4. Enable **Auto-claim** and choose an interval. Available intervals are `5`, `10`, `15`, `30`, and `60` minutes.
+5. Optionally enable **Use quota limits**, then choose the model and reasoning effort. After saving, the menu shows the automation as running.
+
+For example, the `Dashi Taskboard` project can use:
+
+| Setting | Example |
+| --- | --- |
+| Taskboard project ID | `dashi-taskboard` |
+| Workspace | `E:\github\dashi-taskboard-main` |
+| Check interval | `5` minutes |
+| Auto-claim | Enabled |
+
+The Taskboard project name, project ID, Codex project, workspace, and environment-specific `taskctl` path are filled from the current project context. Do not hard-code the example path, thread ID, or binding data into another project's automation.
+
+### What the automation does
+
+After saving, Taskboard creates or updates a `cron` automation through the embedded host. On Windows, the example project uses a complete CLI prefix similar to the following instead of relying on a `taskctl` found on `PATH`:
+
+```powershell
+'C:\Program Files\nodejs\node.exe' `
+  'E:\github\dashi-taskboard-main\cli\taskctl.mjs'
+```
+
+Each run follows this direct path:
+
+1. Run `issue list --project dashi-taskboard --status todo --sort priority --json`, then choose the first actionable issue by priority, manual order, and creation time.
+2. Read the issue and all comments, skipping issues that explicitly require waiting or remain blocked by unfinished dependencies.
+3. Before reading code or downloading attachments, claim an unbound issue as `in_progress` with the current version and save the complete Codex conversation binding.
+4. Codex implements and verifies the work in the bound project, branch, or worktree. It then records the changes and verification result in a comment and moves the issue to `in_review`.
+5. The automation does not mark issues as `done`; completion requires user acceptance. When no actionable issue exists, it stays idle instead of creating an unnecessary task conversation.
+
+Observable results include a “Running” project-header state, an issue moving from `todo` to `in_progress`, a conversation title matching the issue title, and a verified issue moving to `in_review`. If automation is unavailable, confirm that Taskboard was opened from the Codex App's embedded panel and that the Codex host is still running.
+
 ## Embed in Codex
 
 ### Manual: use a dedicated CDP port

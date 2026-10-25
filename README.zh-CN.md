@@ -61,6 +61,48 @@ ln -s /absolute/path/to/codex-taskboard/skills/manage-taskboard \
 
 桌面 App 会让该目录与内置 Skill 保持同步。该 Skill 会指导 Codex 检查议题，将其移到 `in_progress`，使用乐观版本控制，验证工作，然后将其移到 `in_review`；只有在用户明确确认接受或要求将议题标记为完成后，才会将议题移到 `done`。
 
+## 在 Codex App 中设置项目自动认领
+
+Taskboard 支持为每个项目创建一个 Codex 定时自动化，让 Codex 按固定间隔检查并处理可开始的 `todo` 议题。推荐直接在 Codex App 内嵌的 Taskboard 面板中配置，不需要手动复制整段自动化提示词。
+
+### 配置步骤
+
+1. 在 Codex App 中打开内嵌的 Taskboard 面板。独立浏览器页面不提供项目自动化入口。
+2. 选择要处理的 Taskboard 项目，确认项目已经绑定正确的 Codex 项目和工作目录。
+3. 点击项目页眉中的 **自动化**，打开 **自动认领待办**。
+4. 打开 **自动认领开关**，选择检查间隔。可用间隔为 `5`、`10`、`15`、`30` 和 `60` 分钟。
+5. 按需打开 **根据额度启用/关闭**，并选择模型和推理强度。保存后，菜单状态会显示为“运行中”。
+
+例如，`Dashi Taskboard` 项目可以这样设置：
+
+| 设置项 | 示例值 |
+| --- | --- |
+| Taskboard 项目 ID | `dashi-taskboard` |
+| 项目目录 | `E:\github\dashi-taskboard-main` |
+| 检查间隔 | `5` 分钟 |
+| 自动认领 | 开启 |
+
+项目名称、项目 ID、Codex 项目、工作目录和当前环境的 `taskctl` 路径会由 Taskboard 自动填入。不要把示例中的路径、线程 ID 或绑定信息写死到其他项目的自动化中。
+
+### 自动化实际执行什么
+
+配置保存后，Taskboard 会通过内嵌宿主创建或更新一个 `cron` 自动化。以 Windows 的上述项目为例，自动化会使用类似下面的完整 CLI 前缀，而不是依赖 `PATH` 中的 `taskctl`：
+
+```powershell
+'C:\Program Files\nodejs\node.exe' `
+  'E:\github\dashi-taskboard-main\cli\taskctl.mjs'
+```
+
+每轮运行的直接路径是：
+
+1. 运行 `issue list --project dashi-taskboard --status todo --sort priority --json`，按优先级、手动排序和创建时间选择第一个可执行议题。
+2. 读取议题详情和全部评论，跳过明确要求等待、暂不执行或仍被未完成依赖阻塞的议题。
+3. 在读取代码或下载附件前，先用当前版本把未绑定议题认领为 `in_progress`，并保存完整 Codex 会话绑定。
+4. Codex 在绑定的项目、分支或 worktree 中实施并验证；完成后写入改动和验证结果评论，再把议题移动到 `in_review`。
+5. 不会自动把议题标记为 `done`；完成状态需要用户确认。没有可执行任务时，自动化保持空闲，不创建无意义的新任务会话。
+
+因此，自动化的可观察结果包括：项目页眉显示“运行中”、任务从 `todo` 进入 `in_progress`、Codex 会话标题改为议题标题，以及验证完成后任务进入 `in_review`。如果自动化不可用，先确认当前 Taskboard 是从 Codex App 的内嵌面板打开的，并检查 Codex 宿主是否仍在运行。
+
 ## 嵌入 Codex
 
 ### 手动：使用专用 CDP 端口
