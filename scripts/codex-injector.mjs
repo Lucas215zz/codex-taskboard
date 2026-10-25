@@ -130,6 +130,21 @@ function stableCodexUserId(account) {
   return `codex-user-${digest}`;
 }
 
+function findWindowsCodexAppPath() {
+  const packages = spawnSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-Command",
+      "Get-AppxPackage -Name OpenAI.Codex | Select-Object -ExpandProperty InstallLocation",
+    ],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+  );
+  if (packages.status !== 0 || !packages.stdout.trim()) return "";
+  const installLocation = packages.stdout.trim().split("\n")[0].trim();
+  return path.join(installLocation, "app", "ChatGPT.exe");
+}
+
 function parseArgs(argv) {
   const options = {
     port: defaultCodexDebuggingPort,
@@ -144,7 +159,11 @@ function parseArgs(argv) {
     startupToken: null,
     daemon: false,
     screenshot: null,
-    appPath: process.platform === "linux" ? "/usr/bin/chatgpt" : "/Applications/ChatGPT.app",
+    appPath: process.platform === "linux"
+      ? "/usr/bin/chatgpt"
+      : process.platform === "win32"
+        ? findWindowsCodexAppPath()
+        : "/Applications/ChatGPT.app",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
