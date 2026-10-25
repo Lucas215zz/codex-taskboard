@@ -1,22 +1,28 @@
 .dashboard-view.dashboard-view {
-  --dashboard-summary-text: var(--accent);
+  --dashboard-accent: #317cff;
+  --dashboard-accent-hover: #3b84ff;
+  --dashboard-accent-soft: rgba(49, 124, 255, .11);
+  --dashboard-summary-text: var(--dashboard-accent);
   --dashboard-other-label-color: var(--text-quaternary);
-  --dashboard-contribution-1: color-mix(in srgb, var(--accent) 22%, var(--surface-muted));
-  --dashboard-contribution-2: color-mix(in srgb, var(--accent) 42%, var(--surface-muted));
-  --dashboard-contribution-3: color-mix(in srgb, var(--accent) 68%, var(--surface-muted));
-  --dashboard-contribution-4: var(--accent);
+  --dashboard-contribution-1: color-mix(in srgb, var(--dashboard-accent) 22%, var(--surface-muted));
+  --dashboard-contribution-2: color-mix(in srgb, var(--dashboard-accent) 42%, var(--surface-muted));
+  --dashboard-contribution-3: color-mix(in srgb, var(--dashboard-accent) 68%, var(--surface-muted));
+  --dashboard-contribution-4: var(--dashboard-accent);
   padding: 16px 8px 64px;
   background: transparent;
   scrollbar-width: none;
 }
 
 :root[data-theme="dark"] .dashboard-view.dashboard-view {
-  --dashboard-summary-text: color-mix(in srgb, var(--accent) 55%, var(--text-primary));
+  --dashboard-accent: #317cff;
+  --dashboard-accent-hover: #3f8aff;
+  --dashboard-accent-soft: rgba(49, 124, 255, .16);
+  --dashboard-summary-text: color-mix(in srgb, var(--dashboard-accent) 55%, var(--text-primary));
   --dashboard-other-label-color: var(--text-quaternary);
-  --dashboard-contribution-1: color-mix(in srgb, var(--accent) 22%, var(--surface-muted));
-  --dashboard-contribution-2: color-mix(in srgb, var(--accent) 42%, var(--surface-muted));
-  --dashboard-contribution-3: color-mix(in srgb, var(--accent) 68%, var(--surface-muted));
-  --dashboard-contribution-4: var(--accent);
+  --dashboard-contribution-1: color-mix(in srgb, var(--dashboard-accent) 22%, var(--surface-muted));
+  --dashboard-contribution-2: color-mix(in srgb, var(--dashboard-accent) 42%, var(--surface-muted));
+  --dashboard-contribution-3: color-mix(in srgb, var(--dashboard-accent) 68%, var(--surface-muted));
+  --dashboard-contribution-4: var(--dashboard-accent);
 }
 
 .dashboard-view.dashboard-view::-webkit-scrollbar,
@@ -73,7 +79,7 @@
 
 .dashboard-view .dashboard-hero-value strong {
   flex: 0 0 auto;
-  background: linear-gradient(93.9348deg, var(--status-done) 1.6282%, var(--accent) 48.065%, var(--accent-hover) 77.088%, var(--success) 98.372%);
+  background: linear-gradient(93.9348deg, var(--dashboard-accent) 1.6282%, var(--dashboard-accent-hover) 48.065%, var(--dashboard-accent-hover) 77.088%, var(--success) 98.372%);
   background-clip: text;
   color: transparent;
   font-size: var(--fs-metric-xl);
@@ -133,7 +139,7 @@
   padding: 18px 20px;
   border: 0;
   border-radius: 24px 24px 0 24px;
-  background: linear-gradient(90deg, var(--accent-soft), color-mix(in srgb, var(--accent) 10%, transparent));
+  background: linear-gradient(90deg, var(--dashboard-accent-soft), color-mix(in srgb, var(--dashboard-accent) 10%, transparent));
 }
 
 .dashboard-view .dashboard-summary-bubble p {
@@ -337,7 +343,7 @@
 }
 
 .dashboard-view .dashboard-progress-legend .tone-scope { color: var(--text-quaternary); }
-.dashboard-view .dashboard-progress-legend .tone-started { color: var(--accent); }
+.dashboard-view .dashboard-progress-legend .tone-started { color: var(--dashboard-accent); }
 .dashboard-view .dashboard-progress-legend .tone-completed { color: var(--success); }
 
 .dashboard-view .dashboard-progress-body {
@@ -380,7 +386,7 @@
 }
 
 .dashboard-view .dashboard-progress-line.tone-scope { stroke: var(--text-quaternary); }
-.dashboard-view .dashboard-progress-line.tone-started { stroke: var(--accent); }
+.dashboard-view .dashboard-progress-line.tone-started { stroke: var(--dashboard-accent); }
 .dashboard-view .dashboard-progress-line.tone-completed { stroke: var(--success); }
 
 .dashboard-view .dashboard-progress-projection {
@@ -407,7 +413,7 @@
 }
 
 .dashboard-view .dashboard-progress-point.tone-scope { fill: var(--text-quaternary); }
-.dashboard-view .dashboard-progress-point.tone-started { fill: var(--accent); }
+.dashboard-view .dashboard-progress-point.tone-started { fill: var(--dashboard-accent); }
 .dashboard-view .dashboard-progress-point.tone-completed { fill: var(--success); }
 
 .dashboard-view .dashboard-progress-hover-line {
@@ -674,7 +680,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--dashboard-accent);
 }
 
 .dashboard-view .dashboard-attention-row strong,
@@ -788,7 +794,7 @@
 }
 
 .dashboard-view .dashboard-role-stack .tone-0,
-.dashboard-view .dashboard-role-share.tone-0 { --role-color: var(--accent); }
+.dashboard-view .dashboard-role-share.tone-0 { --role-color: var(--dashboard-accent); }
 .dashboard-view .dashboard-role-stack .tone-1,
 .dashboard-view .dashboard-role-share.tone-1 { --role-color: var(--danger); }
 .dashboard-view .dashboard-role-stack .tone-2,
