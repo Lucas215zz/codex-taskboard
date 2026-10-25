@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import "./AgentOverviewView.css";
 import { useTaskboardI18n, taskStatusLabel } from "../i18n";
@@ -498,13 +498,14 @@ export function AgentOverviewView({
   const now = Date.now();
   const nowDate = new Date();
 
-  const [hideNames, setHideNames] = useState(() => {
-    try { return localStorage.getItem(HIDE_NAMES_KEY) === "1"; } catch { return false; }
-  });
+  /* Layout preferences live on the server so every browser sees the same org chart. */
+  const [hideNames, setHideNames] = useState(false);
+  const hideNamesTouchedRef = useRef(false);
   const toggleHideNames = useCallback(() => {
     setHideNames((previous) => {
       const next = !previous;
-      try { localStorage.setItem(HIDE_NAMES_KEY, next ? "1" : "0"); } catch { /* noop */ }
+      hideNamesTouchedRef.current = true;
+      void updateClientStorageEntry(HIDE_NAMES_KEY, next ? "1" : "0").catch(() => { /* keep the local state */ });
       return next;
     });
   }, []);
@@ -518,6 +519,7 @@ export function AgentOverviewView({
       .then((entries) => {
         if (cancelled) return;
         setSettings(parseDepartmentSettings(entries[DEPARTMENT_STORAGE_KEY] ?? null));
+        if (!hideNamesTouchedRef.current) setHideNames(entries[HIDE_NAMES_KEY] === "1");
       })
       .catch(() => { /* keep defaults */ });
     return () => { cancelled = true; };
