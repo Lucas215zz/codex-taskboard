@@ -1,11 +1,12 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import "./AgentOverviewView.css";
 import { useTaskboardI18n, taskStatusLabel } from "../i18n";
 import type { TaskboardLanguage } from "../i18n";
-import type { ActorIdentity, Project, Task, TaskStatus } from "../types";
+import type { ActorIdentity, Project, Task } from "../types";
 import type { TaskCardPresentation } from "../taskConversations";
 import { ActorAvatar } from "./ActorAvatar";
+import { updateProjectMetric } from "../api";
 
 export interface AgentAutomationSummary {
   activeCount: number;
@@ -22,12 +23,14 @@ interface AgentOverviewViewProps {
   automation: AgentAutomationSummary;
   onOpenTask: (task: Pick<Task, "identifier" | "projectId">) => void;
   onSelectProject: (projectId: string) => void;
+  onProjectMetricUpdated: (project: Project) => void;
 }
 
 const DAY_MS = 86_400_000;
 const STALE_DAYS = 7;
 const QUIET_DAYS = 3;
-const WAITING_LIMIT = 8;
+const RECENT_TASKS_PER_PROJECT = 5;
+const HIDE_NAMES_KEY = "taskboard:hideProjectNames";
 
 type HealthTone = "active" | "quiet" | "stalled" | "empty";
 
@@ -53,12 +56,6 @@ function isOpenTask(task: Task) {
   return task.status !== "done" && task.status !== "canceled";
 }
 
-/**
- * Health is driven by recency of activity, not by throughput: for a solo
- * operator the question is always "which project have I stopped touching".
- * A project with no issues is not healthy or sick, it is simply not started,
- * so it is kept out of the neglect ranking.
- */
 function healthTone(total: number, quietDays: number): HealthTone {
   if (total === 0) return "empty";
   if (quietDays >= STALE_DAYS) return "stalled";
@@ -73,6 +70,207 @@ function relativeDayLabel(days: number, language: TaskboardLanguage) {
   return language === "zh" ? `${days} 天前` : `${days}d ago`;
 }
 
+function timeLabel(date: Date) {
+  const h = String(date.getHours()).padStart(2, "0");
+  const m = String(date.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+/* ---------- project card ---------- */
+
+interface ProjectCardProps {
+  health: ProjectHealth;
+  tasks: Task[];
+  language: TaskboardLanguage;
+  text: (zh: string, en: string) => string;
+  hideNames: boolean;
+  displayIndex: number;
+  presentations: Record<string, TaskCardPresentation>;
+  onOpenTask: (task: Pick<Task, "identifier" | "projectId">) => void;
+  onSelectProject: (projectId: string) => void;
+  onProjectMetricUpdated: (project: Project) => void;
+  project: Project;
+}
+
+function ProjectCard({
+  health,
+  tasks,
+  language,
+  text,
+  hideNames,
+  displayIndex,
+  presentations,
+  onOpenTask,
+  onSelectProject,
+  onProjectMetricUpdated,
+  project,
+}: ProjectCardProps) {
+  const [editing, setEditing] = useState(false);
+  const [editLabel, setEditLabel] = useState("");
+  const [editValue, setEditValue] = useState("");
+
+  const displayName = hideNames
+    ? `${text("项目", "Project")} ${String.fromCharCode(65 + displayIndex)}`
+    : health.name;
+
+  const metricLabel = project.mainMetricLabel;
+  const metricValue = project.mainMetricValue;
+
+  const recentTasks = useMemo(() => tasks
+    .filter((task) => task.projectId === health.id)
+    .sort((left, right) => right.activityUpdatedAt.localeCompare(left.activityUpdatedAt))
+    .slice(0, RECENT_TASKS_PER_PROJECT),
+  [tasks, health.id]);
+
+  const openCount = tasks.filter(
+    (task) => task.projectId === health.id && task.status === "in_progress",
+  ).length;
+  const waitingCount = tasks.filter(
+    (task) => task.projectId === health.id
+      && (task.status === "in_review" || task.status === "blocked"),
+  ).length;
+
+  const startEdit = useCallback(() => {
+    setEditLabel(metricLabel ?? "");
+    setEditValue(metricValue ?? "");
+    setEditing(true);
+  }, [metricLabel, metricValue]);
+
+  const saveEdit = useCallback(async () => {
+    const label = editLabel.trim() || null;
+    const value = editValue.trim() || null;
+    setEditing(false);
+    try {
+      const updated = await updateProjectMetric(health.id, {
+        mainMetricLabel: label,
+        mainMetricValue: value,
+      });
+      onProjectMetricUpdated(updated);
+    } catch {
+      // Silently revert — the next refresh will restore the true state.
+    }
+  }, [editLabel, editValue, health.id, onProjectMetricUpdated]);
+
+  const toneIcon: Record<HealthTone, string> = {
+    active: "●",
+    quiet: "◐",
+    stalled: "○",
+    empty: "◌",
+  };
+
+  return (
+    <div className={`cockpit-project tone-${health.tone}`}>
+      {/* metric area */}
+      <div className="cockpit-project-metric">
+        {editing ? (
+          <div className="cockpit-metric-edit">
+            <input
+              className="cockpit-metric-input"
+              placeholder={text("指标名称", "Metric label")}
+              value={editLabel}
+              onChange={(event) => setEditLabel(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void saveEdit(); }}
+              autoFocus
+            />
+            <input
+              className="cockpit-metric-input"
+              placeholder={text("数值", "Value")}
+              value={editValue}
+              onChange={(event) => setEditValue(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") void saveEdit(); }}
+            />
+            <div className="cockpit-metric-actions">
+              <button type="button" onClick={() => void saveEdit()}>
+                {text("确定", "Save")}
+              </button>
+              <button type="button" onClick={() => setEditing(false)}>
+                {text("取消", "Cancel")}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {metricValue && metricLabel ? (
+              <div className="cockpit-metric-custom">
+                <strong>{metricValue}</strong>
+                <span>{metricLabel}</span>
+              </div>
+            ) : (
+              <div className="cockpit-metric-auto">
+                <strong>{health.doneLast7}</strong>
+                <span>{text("7 天交付", "7d shipped")}</span>
+              </div>
+            )}
+            <button
+              type="button"
+              className="cockpit-metric-edit-btn"
+              onClick={startEdit}
+              title={text("编辑主指标", "Edit main metric")}
+              aria-label={text("编辑主指标", "Edit main metric")}
+            >
+              ✎
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* header */}
+      <button
+        type="button"
+        className="cockpit-project-head"
+        onClick={() => onSelectProject(health.id)}
+      >
+        <span className="cockpit-project-icon" aria-hidden="true">
+          {toneIcon[health.tone]}
+        </span>
+        <span className="cockpit-project-name">{displayName}</span>
+        <span className="cockpit-project-badge">
+          {openCount > 0 && (
+            <em className="is-active">{openCount} {text("在做", "active")}</em>
+          )}
+          {waitingCount > 0 && (
+            <em className="is-waiting">{waitingCount} {text("等你", "for you")}</em>
+          )}
+        </span>
+      </button>
+
+      {/* stats row */}
+      <div className="cockpit-project-stats">
+        <span>{health.open} {text("未结束", "open")}</span>
+        <i aria-hidden="true">·</i>
+        <span>{text("动静", "last")} {relativeDayLabel(health.quietDays, language)}</span>
+      </div>
+
+      {/* recent tasks */}
+      {recentTasks.length > 0 && (
+        <div className="cockpit-project-tasks">
+          {recentTasks.map((task) => {
+            const presentation = presentations[task.id];
+            const isUnread = presentation?.unread ?? false;
+            return (
+              <button
+                type="button"
+                className={`cockpit-task${isUnread ? " is-unread" : ""}`}
+                key={task.id}
+                onClick={() => onOpenTask(task)}
+                title={task.title}
+              >
+                <span className={`cockpit-task-dot tone-${task.status}`} aria-hidden="true" />
+                <span className="cockpit-task-title">{task.title}</span>
+                <span className="cockpit-task-status">
+                  {taskStatusLabel(language, task.status)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- main view ---------- */
+
 export function AgentOverviewView({
   isAllProjects,
   currentUser,
@@ -83,9 +281,22 @@ export function AgentOverviewView({
   automation,
   onOpenTask,
   onSelectProject,
+  onProjectMetricUpdated,
 }: AgentOverviewViewProps) {
   const { language, text } = useTaskboardI18n();
   const now = Date.now();
+  const nowDate = new Date();
+
+  const [hideNames, setHideNames] = useState(() => {
+    try { return localStorage.getItem(HIDE_NAMES_KEY) === "1"; } catch { return false; }
+  });
+  const toggleHideNames = useCallback(() => {
+    setHideNames((previous) => {
+      const next = !previous;
+      try { localStorage.setItem(HIDE_NAMES_KEY, next ? "1" : "0"); } catch { /* noop */ }
+      return next;
+    });
+  }, []);
 
   const waitingOnYou = useMemo(() => tasks
     .filter((task) => task.status === "in_review" || task.status === "blocked")
@@ -101,14 +312,7 @@ export function AgentOverviewView({
     .sort((left, right) => left.activityUpdatedAt.localeCompare(right.activityUpdatedAt)),
   [tasks]);
 
-  const backlog = useMemo(() => tasks
-    .filter((task) => task.status === "todo" || task.status === "backlog")
-    .sort((left, right) => left.activityUpdatedAt.localeCompare(right.activityUpdatedAt)),
-  [tasks]);
-
   const health = useMemo<ProjectHealth[]>(() => {
-    // Scope follows the loaded task list: all projects when browsing everything,
-    // otherwise just the project whose tasks are currently in memory.
     const scope = isAllProjects
       ? projects
       : projects.filter((project) => tasks.some((task) => task.projectId === project.id));
@@ -150,18 +354,12 @@ export function AgentOverviewView({
 
   const stalledProjects = health.filter((project) => project.tone === "stalled");
   const activeProjects = health.filter((project) => project.tone === "active");
-  const nextMove = buildNextMove({
-    waitingOnYou,
-    stalledProjects,
-    health,
-    agentQueue,
-  });
+  const emptyProjects = health.filter((project) => project.tone === "empty");
+  const openCount = tasks.filter(isOpenTask).length;
+  const unreadCount = waitingOnYou.filter((task) => presentations[task.id]?.unread).length;
   const doneLast7 = tasks.filter(
     (task) => task.status === "done" && daysSince(task.updatedAt, now) <= 7,
   ).length;
-  const openCount = tasks.filter(isOpenTask).length;
-  const unreadCount = waitingOnYou.filter((task) => presentations[task.id]?.unread).length;
-  const oldestWaiting = waitingOnYou[0] ?? null;
 
   const statusLine = automation.activeCount > 0
     ? text(
@@ -171,322 +369,146 @@ export function AgentOverviewView({
     : text("自动认领未开启", "Auto-claim is off");
 
   return (
-    <div className="agent-overview solo">
-      <div className="solo-canvas">
-        <header className="solo-head">
-          <div className="solo-identity">
-            <ActorAvatar actor={currentUser} className="solo-avatar" />
-            <div>
-              <strong>{currentUser.name}</strong>
-              <small>{text("一人公司 · 项目操盘", "Solo operator")}</small>
-            </div>
+    <div className="agent-overview cockpit">
+      <div className="cockpit-canvas">
+        {/* top status bar */}
+        <header className="cockpit-topbar">
+          <div className="cockpit-topbar-brand">
+            <span className="cockpit-logo" aria-hidden="true">◆</span>
+            <span className="cockpit-brand-name">Taskboard</span>
+            <span className="cockpit-brand-sub">{text("公司运营驾驶舱", "Operations Cockpit")}</span>
           </div>
-          <div className={`solo-agent${automation.activeCount > 0 ? " is-on" : ""}`}>
-            <img src="codex-agent-logo.png" alt="" aria-hidden="true" />
-            <span>{statusLine}</span>
-            <i aria-hidden="true" />
-            {text(
-              `在做 ${agentQueue.length}`,
-              `${agentQueue.length} running`,
-            )}
+          <div className="cockpit-topbar-stats">
+            <span className="cockpit-stat">
+              {health.length} {text("个项目", "projects")}
+            </span>
+            <span className="cockpit-stat">
+              {tasks.length} {text("个议题", "issues")}
+            </span>
+            <span className="cockpit-stat">
+              {openCount} {text("个未结束", "open")}
+            </span>
+            <span className="cockpit-stat">
+              {activeProjects.length} {text("个活跃", "active")}
+            </span>
+          </div>
+          <div className="cockpit-topbar-right">
+            <span className="cockpit-time">{timeLabel(nowDate)}</span>
+            <button
+              type="button"
+              className={`cockpit-hide-toggle${hideNames ? " is-on" : ""}`}
+              onClick={toggleHideNames}
+              title={hideNames ? text("显示项目名", "Show names") : text("隐藏项目名", "Hide names")}
+            >
+              {hideNames ? text("隐藏店名", "Hide names") : text("显示店名", "Show names")}
+            </button>
           </div>
         </header>
 
-        <section className={`solo-verdict tone-${verdictTone(health, waitingOnYou.length)}`}>
-          <p className="solo-verdict-line">{buildVerdict({
-            isAllProjects,
-            waiting: waitingOnYou.length,
-            unread: unreadCount,
-            oldestWaiting,
-            stalled: stalledProjects,
-            activeCount: activeProjects.length,
-            emptyCount: health.filter((project) => project.tone === "empty").length,
-            now,
-            language,
-            text,
-          })}</p>
-          {nextMove && (
-            <button
-              type="button"
-              className="solo-next"
-              onClick={() => {
-                if (nextMove.task) onOpenTask(nextMove.task);
-                else if (nextMove.projectId) onSelectProject(nextMove.projectId);
-              }}
-            >
-              <span className="solo-next-label">{text("下一步", "Next step")}</span>
-              <span className="solo-next-text">{nextMove.label}</span>
-              <i aria-hidden="true" />
-            </button>
-          )}
-          <dl className="solo-figures">
-            <div className={waitingOnYou.length > 0 ? "is-hot" : undefined}>
-              <dt>{text("该我处理", "Needs me")}</dt>
-              <dd>{waitingOnYou.length}</dd>
+        {/* you */}
+        <section className="cockpit-user">
+          <div className="cockpit-user-card">
+            <ActorAvatar actor={currentUser} className="cockpit-user-avatar" />
+            <div className="cockpit-user-info">
+              <strong>{currentUser.name}</strong>
+              <span>{text("创始人 · 拍板定方向", "Founder · Sets direction")}</span>
             </div>
-            <div>
-              <dt>{text("Agent 在做", "Agent working")}</dt>
-              <dd>{agentQueue.length}</dd>
+            <div className="cockpit-user-badge">
+              {waitingOnYou.length > 0 ? (
+                <span className="cockpit-badge-hot">
+                  {text(`等你 ${waitingOnYou.length} 件`, `${waitingOnYou.length} waiting`)}
+                </span>
+              ) : (
+                <span className="cockpit-badge-calm">
+                  {text("没有等你的事", "Nothing waiting")}
+                </span>
+              )}
             </div>
-            <div>
-              <dt>{text("排队中", "Queued")}</dt>
-              <dd>{backlog.length}</dd>
-            </div>
-            <div className={stalledProjects.length > 0 ? "is-warn" : undefined}>
-              <dt>{text("荒废项目", "Starving")}</dt>
-              <dd>{stalledProjects.length}</dd>
-            </div>
-            <div>
-              <dt>{text("7 天交付", "Shipped 7d")}</dt>
-              <dd>{doneLast7}</dd>
-            </div>
-          </dl>
+          </div>
         </section>
 
-        <div className="solo-main">
-          <section className="solo-panel solo-focus">
-            <header>
-              <h2>{text("现在轮到你", "Your turn")}</h2>
-              <span>{text(`${waitingOnYou.length} 件`, `${waitingOnYou.length} items`)}</span>
-            </header>
-            <div className="solo-list">
-              {waitingOnYou.slice(0, WAITING_LIMIT).map((task) => (
-                <button
-                  type="button"
-                  className={`solo-task tone-${task.status}`}
-                  key={task.id}
-                  onClick={() => onOpenTask(task)}
-                  title={task.title}
-                >
-                  <span className="solo-task-mark" aria-hidden="true" />
-                  <span className="solo-task-body">
-                    <span className="solo-task-title">{task.title}</span>
-                    <span className="solo-task-meta">
-                      <b>{task.externalKey ?? task.identifier}</b>
-                      <span>{projectNames[task.projectId] ?? task.projectId}</span>
-                      <span className="solo-task-state">
-                        {taskStatusLabel(language, task.status)}
-                      </span>
-                    </span>
-                  </span>
-                  <span className="solo-task-age">
-                    {relativeDayLabel(daysSince(task.activityUpdatedAt, now), language)}
-                  </span>
-                </button>
-              ))}
-              {waitingOnYou.length === 0 && (
-                <div className="solo-empty">
-                  <strong>{text("现在没有等你的事", "Nothing waiting on you")}</strong>
-                  <span>
-                    {agentQueue.length > 0
-                      ? text(
-                          `Agent 还有 ${agentQueue.length} 件在做，做完会自动落到这里。`,
-                          `Agent is working on ${agentQueue.length}. Finished work lands here.`,
-                        )
-                      : text(
-                          "队列和 Agent 都空着，可以去推进最荒废的那个项目。",
-                          "Queue and agent are both empty. Go push the most starved project.",
-                        )}
-                  </span>
-                </div>
-              )}
+        {/* CEO Agent */}
+        <section className="cockpit-ceo">
+          {/* arrow from user */}
+          <div className="cockpit-arrow-down" aria-hidden="true">
+            <svg width="20" height="28" viewBox="0 0 20 28">
+              <line x1="10" y1="0" x2="10" y2="22" stroke="var(--ck-line-bright)" strokeWidth="1" />
+              <polyline points="4,18 10,24 16,18" fill="none" stroke="var(--ck-line-bright)" strokeWidth="1" />
+            </svg>
+          </div>
+          <div className="cockpit-ceo-card">
+            <div className="cockpit-ceo-icon" aria-hidden="true">◇</div>
+            <div className="cockpit-ceo-info">
+              <strong>CEO Agent</strong>
+              <span>
+                {automation.activeCount > 0
+                  ? text(
+                      `每 ${automation.intervalMinutes ?? 0} 分钟巡视 · 在做 ${agentQueue.length} 件`,
+                      `Every ${automation.intervalMinutes ?? 0} min · ${agentQueue.length} running`,
+                    )
+                  : text("未开启自动巡视", "Auto-patrol is off")}
+              </span>
             </div>
-          </section>
-
-          <section className="solo-panel solo-health">
-            <header>
-              <h2>{text("项目体温", "Project health")}</h2>
-              <span>{text(`${health.length} 个`, `${health.length} projects`)}</span>
-            </header>
-            <div className="solo-health-list">
+            <div className={`cockpit-ceo-status${automation.activeCount > 0 ? " is-on" : ""}`}>
+              <i aria-hidden="true" />
+              <span>{statusLine}</span>
+            </div>
+          </div>
+          {/* connector lines */}
+          <div className="cockpit-connectors" aria-hidden="true">
+            <div className="cockpit-connector-hub" />
+            <div className="cockpit-connector-spokes">
               {health.map((project) => (
-                <button
-                  type="button"
-                  className={`solo-project tone-${project.tone}`}
-                  key={project.id}
-                  onClick={() => onSelectProject(project.id)}
-                  title={text(
-                    `打开 ${project.name}`,
-                    `Open ${project.name}`,
-                  )}
-                >
-                  <span className="solo-project-bar" aria-hidden="true" />
-                  <span className="solo-project-main">
-                    <span className="solo-project-name">{project.name}</span>
-                    <span className="solo-project-facts">
-                      {project.total === 0
-                        ? text("还没有议题", "No issues yet")
-                        : text(
-                            `${project.open} 未结束 · ${project.doneLast7} 件 7 天交付`,
-                            `${project.open} open · ${project.doneLast7} shipped in 7d`,
-                          )}
-                    </span>
-                  </span>
-                  <span className="solo-project-tail">
-                    {project.waitingOnYou > 0 && (
-                      <b className="solo-project-waiting">
-                        {text(`${project.waitingOnYou} 件等你`, `${project.waitingOnYou} for you`)}
-                      </b>
-                    )}
-                    <span className="solo-project-quiet">
-                      {text(
-                        `动静 ${relativeDayLabel(project.quietDays, language)}`,
-                        `Last ${relativeDayLabel(project.quietDays, language)}`,
-                      )}
-                    </span>
-                  </span>
-                </button>
+                <div className="cockpit-spoke" key={project.id} />
               ))}
-              {health.length === 0 && (
-                <div className="solo-empty">
-                  <strong>{text("还没有项目", "No projects yet")}</strong>
-                </div>
-              )}
             </div>
-          </section>
-        </div>
+          </div>
+        </section>
 
-        <section className="solo-flow">
-          <span className="solo-flow-label">{text("流水线", "Pipeline")}</span>
-          {FLOW.map((step, index) => {
-            const count = tasks.filter((task) => task.status === step.status).length;
-            return (
-              <div className={`solo-flow-step tone-${step.status}`} key={step.status}>
-                {index > 0 && <i className="solo-flow-arrow" aria-hidden="true" />}
-                <span>{taskStatusLabel(language, step.status)}</span>
-                <b>{count}</b>
-              </div>
-            );
-          })}
-          <span className="solo-flow-foot">
-            {text(
-              `共 ${tasks.length} 个议题 · ${openCount} 个未结束`,
-              `${tasks.length} issues · ${openCount} open`,
+        {/* project grid */}
+        <section className="cockpit-grid">
+          {health.map((project, index) => (
+            <ProjectCard
+              key={project.id}
+              health={project}
+              tasks={tasks}
+              language={language}
+              text={text}
+              hideNames={hideNames}
+              displayIndex={index}
+              presentations={presentations}
+              onOpenTask={onOpenTask}
+              onSelectProject={onSelectProject}
+              onProjectMetricUpdated={onProjectMetricUpdated}
+              project={projects.find((candidate) => candidate.id === project.id)!}
+            />
+          ))}
+        </section>
+
+        {/* footer summary */}
+        <footer className="cockpit-footer">
+          <span>
+            {doneLast7} {text("件 7 天交付", "shipped in 7d")}
+          </span>
+          <i aria-hidden="true">·</i>
+          <span>
+            {waitingOnYou.length} {text("件等你", "waiting on you")}
+            {unreadCount > 0 && (
+              <em className="cockpit-unread">
+                ({unreadCount} {text("未读", "unread")})
+              </em>
             )}
           </span>
-        </section>
+          <i aria-hidden="true">·</i>
+          <span>
+            {stalledProjects.length} {text("个荒废", "starving")}
+          </span>
+          <i aria-hidden="true">·</i>
+          <span>
+            {emptyProjects.length} {text("个未开工", "not started")}
+          </span>
+        </footer>
       </div>
     </div>
   );
 }
-
-const FLOW: { status: TaskStatus }[] = [
-  { status: "backlog" },
-  { status: "todo" },
-  { status: "in_progress" },
-  { status: "in_review" },
-  { status: "done" },
-];
-
-function verdictTone(health: ProjectHealth[], waiting: number) {
-  if (health.some((project) => project.tone === "stalled")) return "warn";
-  if (waiting > 0) return "hot";
-  return "calm";
-}
-
-function buildVerdict({
-  isAllProjects,
-  waiting,
-  unread,
-  oldestWaiting,
-  stalled,
-  activeCount,
-  emptyCount,
-  now,
-  language,
-  text,
-}: {
-  isAllProjects: boolean;
-  waiting: number;
-  unread: number;
-  oldestWaiting: Task | null;
-  stalled: ProjectHealth[];
-  activeCount: number;
-  emptyCount: number;
-  now: number;
-  language: TaskboardLanguage;
-  text: (chinese: string, english: string) => string;
-}) {
-  if (waiting > 0) {
-    const age = oldestWaiting
-      ? relativeDayLabel(daysSince(oldestWaiting.activityUpdatedAt, now), language)
-      : "";
-    return text(
-      `${waiting} 件事在等你${unread > 0 ? `（${unread} 件未读）` : ""}，最久的一件候了 ${age}。`,
-      `${waiting} items need you${unread > 0 ? ` (${unread} unread)` : ""}; oldest waiting ${age}.`,
-    );
-  }
-  if (stalled.length > 0) {
-    const names = stalled.slice(0, 2).map((project) => project.name).join("、");
-    return text(
-      `手头没有待办，但 ${names} 已经超过 ${STALE_DAYS} 天没动静了。`,
-      `Nothing waiting, but ${names} has been quiet for ${STALE_DAYS}+ days.`,
-    );
-  }
-  if (!isAllProjects) {
-    return text(
-      "这个项目的待办都清了，没有卡住的事。",
-      "This project is clear — nothing pending or stuck.",
-    );
-  }
-  if (emptyCount > 0) {
-    return text(
-      `${activeCount} 个在推进，${emptyCount} 个还没开工，没有项目掉队。`,
-      `${activeCount} moving, ${emptyCount} not started — nothing is starving.`,
-    );
-  }
-  return text(
-    "所有项目都在近期有推进，没有掉队的。",
-    "Every project has moved recently — nothing is starving.",
-  );
-}
-
-interface NextMove {
-  label: string;
-  task?: Task;
-  projectId?: string;
-}
-
-/**
- * One concrete suggestion instead of a dashboard full of numbers a solo
- * operator still has to interpret. Priority: unblock the review queue,
- * then restart a starving project, then give the empty pipeline a first issue.
- */
-function buildNextMove({
-  waitingOnYou,
-  stalledProjects,
-  health,
-  agentQueue,
-}: {
-  waitingOnYou: Task[];
-  stalledProjects: ProjectHealth[];
-  health: ProjectHealth[];
-  agentQueue: Task[];
-}): NextMove | null {
-  const oldest = waitingOnYou[0];
-  if (oldest) {
-    return {
-      label: `${oldest.externalKey ?? oldest.identifier} ${oldest.title}`,
-      task: oldest,
-    };
-  }
-  if (stalledProjects.length > 0) {
-    const target = stalledProjects[0];
-    return {
-      label: `回到 ${target.name}（${target.quietDays} 天没动）`,
-      projectId: target.id,
-    };
-  }
-  const notStarted = health.find((project) => project.tone === "empty");
-  if (notStarted) {
-    return {
-      label: `给 ${notStarted.name} 立第一个议题`,
-      projectId: notStarted.id,
-    };
-  }
-  if (agentQueue.length > 0) {
-    return { label: `等 Agent 做完 ${agentQueue.length} 件，暂时不用你` };
-  }
-  return null;
-}
-

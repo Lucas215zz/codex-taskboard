@@ -343,6 +343,8 @@ export interface Project {
   id: string;
   name: string;
   workspacePath: string | null;
+  mainMetricLabel: string | null;
+  mainMetricValue: string | null;
   source: "local" | "jira";
   labels: string[];
   issueCount: number;

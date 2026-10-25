@@ -176,6 +176,8 @@ function projectFromRow(row) {
     id: row.id,
     name: row.name,
     workspacePath: row.workspace_path,
+    mainMetricLabel: row.main_metric_label ?? null,
+    mainMetricValue: row.main_metric_value ?? null,
     source: row.id === JIRA_PROJECT_ID ? "jira" : "local",
     labels: JSON.parse(row.labels),
     issueCount: Number(row.issue_count ?? 0),
@@ -467,6 +469,13 @@ export class TaskboardDatabase {
     const projectColumns = this.database.prepare("PRAGMA table_info(projects)").all();
     if (!projectColumns.some((column) => column.name === "workspace_path")) {
       this.database.exec("ALTER TABLE projects ADD COLUMN workspace_path TEXT");
+    }
+
+    if (!projectColumns.some((column) => column.name === "main_metric_label")) {
+      this.database.exec("ALTER TABLE projects ADD COLUMN main_metric_label TEXT");
+    }
+    if (!projectColumns.some((column) => column.name === "main_metric_value")) {
+      this.database.exec("ALTER TABLE projects ADD COLUMN main_metric_value TEXT");
     }
 
     const aiChatThreadColumns = this.database.prepare("PRAGMA table_info(ai_chat_threads)").all();
@@ -912,6 +921,8 @@ export class TaskboardDatabase {
         projects.id,
         projects.name,
         projects.workspace_path,
+        projects.main_metric_label,
+        projects.main_metric_value,
         projects.labels,
         projects.created_at,
         projects.updated_at,
@@ -1191,6 +1202,8 @@ export class TaskboardDatabase {
         projects.id,
         projects.name,
         projects.workspace_path,
+        projects.main_metric_label,
+        projects.main_metric_value,
         projects.labels,
         projects.created_at,
         projects.updated_at,
@@ -1209,6 +1222,23 @@ export class TaskboardDatabase {
         projects.updated_at
     `).get(id);
     return row ? projectFromRow(row) : null;
+  }
+
+  updateProjectMetric(id, input) {
+    const result = this.database.prepare(`
+      UPDATE projects
+      SET main_metric_label = ?, main_metric_value = ?, updated_at = ?
+      WHERE id = ?
+    `).run(
+      input.mainMetricLabel ?? null,
+      input.mainMetricValue ?? null,
+      now(),
+      id,
+    );
+    if (result.changes === 0) {
+      throw new ApiError(404, "PROJECT_NOT_FOUND", `Project '${id}' does not exist`);
+    }
+    return this.getProject(id);
   }
 
   addProjectLabel(projectId, label) {
@@ -1839,6 +1869,9 @@ export class TaskboardDatabase {
       if (!project) {
         throw new ApiError(404, "PROJECT_NOT_FOUND", `Project '${input.projectId}' does not exist`);
       }
+      if (input.status === "in_progress") {
+        this.#assertProjectIdle(input.projectId, null);
+      }
 
       const prefix = projectPrefix(project);
       const maximum = this.database.prepare(`
@@ -2027,6 +2060,14 @@ export class TaskboardDatabase {
 
     this.database.exec("BEGIN IMMEDIATE");
     try {
+      const nextStatus = Object.hasOwn(changes, "status") ? changes.status : current.status;
+      const nextProjectId = projectChanged ? targetProject.id : current.projectId;
+      if (
+        nextStatus === "in_progress"
+        && (nextStatus !== current.status || nextProjectId !== current.projectId)
+      ) {
+        this.#assertProjectIdle(nextProjectId, current.id);
+      }
       const result = this.database.prepare(`
         UPDATE tasks SET ${assignments.join(", ")} WHERE id = ? AND version = ?
       `).run(...values);
@@ -2099,6 +2140,9 @@ export class TaskboardDatabase {
       : "";
     this.database.exec("BEGIN IMMEDIATE");
     try {
+      if (status === "in_progress" && current.status !== "in_progress") {
+        this.#assertProjectIdle(current.projectId, current.id);
+      }
       const result = this.database.prepare(`
         UPDATE tasks
         SET status = ?, sort_order = ?, ${threadAssignment}${sessionAssignment} version = version + 1, updated_at = ?
@@ -2172,6 +2216,9 @@ export class TaskboardDatabase {
       : "";
     this.database.exec("BEGIN IMMEDIATE");
     try {
+      if (current.status === "in_progress") {
+        this.#assertProjectIdle(current.projectId, current.id);
+      }
       const result = this.database.prepare(`
         UPDATE tasks
         SET archived_at = NULL, ${threadAssignment}${sessionAssignment} version = version + 1, updated_at = ?
@@ -2876,6 +2923,27 @@ export class TaskboardDatabase {
         expectedVersion,
         actualVersion: task.version,
       });
+    }
+  }
+
+  // 同一项目共用同一个工作目录时，并行处理会互相覆盖文件。
+  // 因此每个项目只允许一个进行中的议题，处理完再认领下一个。
+  #assertProjectIdle(projectId, taskId) {
+    // Jira 是外部同步项目，多个议题同时进行由 Jira 侧决定，不在这里限制。
+    if (projectId === JIRA_PROJECT_ID) return;
+    const active = this.database.prepare(`
+      SELECT identifier FROM tasks
+      WHERE project_id = ? AND status = 'in_progress' AND archived_at IS NULL AND id != ?
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `).get(projectId, taskId ?? "");
+    if (active) {
+      throw new ApiError(
+        409,
+        "PROJECT_BUSY",
+        `项目已有进行中的议题 ${active.identifier}，请先处理完再开始新的议题`,
+        { activeIdentifier: active.identifier },
+      );
     }
   }
 

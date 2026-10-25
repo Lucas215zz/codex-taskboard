@@ -2316,7 +2316,16 @@ export function createTaskboardServer(options = {}) {
           database.deleteProject(projectId);
           return sendEmpty(response, 204);
         }
-        return methodNotAllowed(response, ["DELETE"]);
+        if (request.method === "PATCH") {
+          const body = await readJson(request);
+          const project = database.updateProjectMetric(projectId, {
+            mainMetricLabel: body.mainMetricLabel ?? null,
+            mainMetricValue: body.mainMetricValue ?? null,
+          });
+          events.emit("project.updated", { project });
+          return sendJson(response, 200, { project });
+        }
+        return methodNotAllowed(response, ["DELETE", "PATCH"]);
       }
 
       const projectLabelsRoute = pathname.match(/^\/api\/projects\/([^/]+)\/labels$/);

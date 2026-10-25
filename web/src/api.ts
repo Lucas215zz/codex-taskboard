@@ -153,6 +153,17 @@ export async function listProjects(signal?: AbortSignal): Promise<Project[]> {
   return data.projects;
 }
 
+export async function updateProjectMetric(
+  projectId: string,
+  input: { mainMetricLabel: string | null; mainMetricValue: string | null },
+): Promise<Project> {
+  const data = await request<{ project: Project }>(
+    `/api/projects/${encodeURIComponent(projectId)}`,
+    { method: "PATCH", body: JSON.stringify(input) },
+  );
+  return data.project;
+}
+
 export async function getJiraConnection(signal?: AbortSignal): Promise<JiraConnection> {
   try {
     const data = await request<{ connection: JiraConnection }>("/api/local/jira-connection", { signal });

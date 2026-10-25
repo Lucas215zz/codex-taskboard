@@ -2707,7 +2707,12 @@ export function App() {
           "该议题已在其他位置更新，看板已重新同步。",
           "This issue changed elsewhere. The board has been synced.",
         )
-        : errorMessage(error));
+        : error instanceof ApiError && error.code === "PROJECT_BUSY"
+          ? textRef.current(
+            "该项目已有进行中的议题，请先处理完再开始新的议题。",
+            "This project already has an issue in progress. Finish it before starting another.",
+          )
+          : errorMessage(error));
       if (taskScopeProjectId) void refreshTasks(taskScopeProjectId, { quiet: true });
     } finally {
       setMovingTaskId(null);
@@ -3894,6 +3899,11 @@ export function App() {
               const choice = projectChoices.find((project) => project.id === projectId);
               if (choice) void selectProject(choice);
               else changeProject(projectId);
+            }}
+            onProjectMetricUpdated={(project) => {
+              setProjects((previous) => previous.map(
+                (candidate) => candidate.id === project.id ? project : candidate,
+              ));
             }}
           />
         ) : boardView === "list" ? (
