@@ -327,7 +327,7 @@ function readProjectBoardView(projectId: string): BoardView {
   const view = taskboardStorage.getItem(`${PROJECT_VIEW_KEY_PREFIX}${projectId}`);
   return view === "readme" || view === "dashboard" || view === "agents" || view === "list" || view === "gantt" || view === "issues"
     ? view
-    : "issues";
+    : "agents";
 }
 
 function readProjectBoardDisplaySettings(): Record<string, BoardDisplaySettings> {
