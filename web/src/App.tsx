@@ -3885,10 +3885,16 @@ export function App() {
             isAllProjects={isAllProjects}
             currentUser={currentUser}
             tasks={tasks}
+            projects={projects}
             presentations={taskPresentations}
             projectNames={projectNames}
             automation={agentOverviewAutomation}
             onOpenTask={openTaskDetail}
+            onSelectProject={(projectId) => {
+              const choice = projectChoices.find((project) => project.id === projectId);
+              if (choice) void selectProject(choice);
+              else changeProject(projectId);
+            }}
           />
         ) : boardView === "list" ? (
           <IssueListView

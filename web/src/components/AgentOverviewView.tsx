@@ -1,9 +1,9 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import "./AgentOverviewView.css";
 import { useTaskboardI18n, taskStatusLabel } from "../i18n";
 import type { TaskboardLanguage } from "../i18n";
-import type { ActorIdentity, Task, TaskStatus } from "../types";
+import type { ActorIdentity, Project, Task, TaskStatus } from "../types";
 import type { TaskCardPresentation } from "../taskConversations";
 import { ActorAvatar } from "./ActorAvatar";
 
@@ -16,136 +16,152 @@ interface AgentOverviewViewProps {
   isAllProjects: boolean;
   currentUser: ActorIdentity;
   tasks: Task[];
+  projects: Project[];
   presentations: Record<string, TaskCardPresentation>;
   projectNames: Record<string, string>;
   automation: AgentAutomationSummary;
   onOpenTask: (task: Pick<Task, "identifier" | "projectId">) => void;
+  onSelectProject: (projectId: string) => void;
 }
 
-interface FlowStage {
-  key: string;
-  status: TaskStatus;
-  /** Verb shown on the connector leading into this stage. */
-  enterVerb: readonly [string, string];
-  caption: readonly [string, string];
+const DAY_MS = 86_400_000;
+const STALE_DAYS = 7;
+const QUIET_DAYS = 3;
+const WAITING_LIMIT = 8;
+
+type HealthTone = "active" | "quiet" | "stalled" | "empty";
+
+interface ProjectHealth {
+  id: string;
+  name: string;
+  total: number;
+  open: number;
+  waitingOnYou: number;
+  quietDays: number;
+  doneLast7: number;
+  tone: HealthTone;
 }
 
-const STAGES: FlowStage[] = [
-  {
-    key: "todo",
-    status: "todo",
-    enterVerb: ["派单", "Dispatch"],
-    caption: ["等待 Agent 认领", "Waiting to be claimed"],
-  },
-  {
-    key: "in_progress",
-    status: "in_progress",
-    enterVerb: ["认领", "Claim"],
-    caption: ["Agent 正在执行", "Agent is working"],
-  },
-  {
-    key: "in_review",
-    status: "in_review",
-    enterVerb: ["提交", "Submit"],
-    caption: ["等待你验收", "Waiting for your review"],
-  },
-  {
-    key: "done",
-    status: "done",
-    enterVerb: ["验收", "Accept"],
-    caption: ["已交付", "Delivered"],
-  },
-];
-
-const SIDE_LANES: FlowStage[] = [
-  {
-    key: "backlog",
-    status: "backlog",
-    enterVerb: ["立项", "Plan"],
-    caption: ["尚未进入流水线", "Not in the pipeline yet"],
-  },
-  {
-    key: "blocked",
-    status: "blocked",
-    enterVerb: ["卡住", "Stuck"],
-    caption: ["需要外部输入", "Needs external input"],
-  },
-];
+function daysSince(value: string | null | undefined, now: number) {
+  if (!value) return Number.POSITIVE_INFINITY;
+  const time = new Date(value).getTime();
+  if (!Number.isFinite(time)) return Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.floor((now - time) / DAY_MS));
+}
 
 function isOpenTask(task: Task) {
   return task.status !== "done" && task.status !== "canceled";
 }
 
-function localDayKey(value: Date) {
-  return `${value.getFullYear()}-${value.getMonth() + 1}-${value.getDate()}`;
+/**
+ * Health is driven by recency of activity, not by throughput: for a solo
+ * operator the question is always "which project have I stopped touching".
+ * A project with no issues is not healthy or sick, it is simply not started,
+ * so it is kept out of the neglect ranking.
+ */
+function healthTone(total: number, quietDays: number): HealthTone {
+  if (total === 0) return "empty";
+  if (quietDays >= STALE_DAYS) return "stalled";
+  if (quietDays >= QUIET_DAYS) return "quiet";
+  return "active";
 }
 
-function timeLabel(value: string, locale: string, now = new Date()) {
-  const date = new Date(value);
-  const time = new Intl.DateTimeFormat(locale, {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-  if (localDayKey(date) === localDayKey(now)) return time;
-  const day = new Intl.DateTimeFormat(locale, {
-    month: "numeric",
-    day: "numeric",
-  }).format(date);
-  return `${day} ${time}`;
-}
-
-function durationLabel(
-  from: string,
-  now: number,
-  locale: string,
-  text: (chinese: string, english: string) => string,
-) {
-  const minutes = Math.max(0, Math.round((now - new Date(from).getTime()) / 60_000));
-  if (minutes < 1) return text("刚刚", "just now");
-  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "short" });
-  if (minutes < 60) return formatter.format(-minutes, "minute");
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return formatter.format(-hours, "hour");
-  return formatter.format(-Math.round(hours / 24), "day");
+function relativeDayLabel(days: number, language: TaskboardLanguage) {
+  if (!Number.isFinite(days)) return language === "zh" ? "从未" : "never";
+  if (days === 0) return language === "zh" ? "今天" : "today";
+  if (days === 1) return language === "zh" ? "昨天" : "yesterday";
+  return language === "zh" ? `${days} 天前` : `${days}d ago`;
 }
 
 export function AgentOverviewView({
   isAllProjects,
   currentUser,
   tasks,
+  projects,
   presentations,
   projectNames,
   automation,
   onOpenTask,
+  onSelectProject,
 }: AgentOverviewViewProps) {
-  const { language, locale, text } = useTaskboardI18n();
-  const taskBuckets = useMemo(() => {
-    const buckets = new Map<TaskStatus, Task[]>();
-    for (const status of ["backlog", "todo", "in_progress", "in_review", "blocked", "done"] as TaskStatus[]) {
-      buckets.set(status, []);
-    }
-    for (const task of tasks) {
-      buckets.get(task.status)?.push(task);
-    }
-    for (const bucket of buckets.values()) {
-      bucket.sort((left, right) => right.activityUpdatedAt.localeCompare(left.activityUpdatedAt));
-    }
-    return buckets;
-  }, [tasks]);
-
+  const { language, text } = useTaskboardI18n();
   const now = Date.now();
-  const todayKey = localDayKey(new Date(now));
-  const unreadCount = tasks.filter((task) => presentations[task.id]?.unread).length;
+
+  const waitingOnYou = useMemo(() => tasks
+    .filter((task) => task.status === "in_review" || task.status === "blocked")
+    .sort((left, right) => {
+      const leftUnread = presentations[left.id]?.unread ? 1 : 0;
+      const rightUnread = presentations[right.id]?.unread ? 1 : 0;
+      return rightUnread - leftUnread
+        || left.activityUpdatedAt.localeCompare(right.activityUpdatedAt);
+    }), [presentations, tasks]);
+
+  const agentQueue = useMemo(() => tasks
+    .filter((task) => task.status === "in_progress")
+    .sort((left, right) => left.activityUpdatedAt.localeCompare(right.activityUpdatedAt)),
+  [tasks]);
+
+  const backlog = useMemo(() => tasks
+    .filter((task) => task.status === "todo" || task.status === "backlog")
+    .sort((left, right) => left.activityUpdatedAt.localeCompare(right.activityUpdatedAt)),
+  [tasks]);
+
+  const health = useMemo<ProjectHealth[]>(() => {
+    // Scope follows the loaded task list: all projects when browsing everything,
+    // otherwise just the project whose tasks are currently in memory.
+    const scope = isAllProjects
+      ? projects
+      : projects.filter((project) => tasks.some((task) => task.projectId === project.id));
+    return scope.map((project) => {
+      const projectTasks = tasks.filter((task) => task.projectId === project.id);
+      const open = projectTasks.filter(isOpenTask);
+      const latest = projectTasks.reduce<string | null>(
+        (value, task) => {
+          const candidate = task.activityUpdatedAt > task.updatedAt
+            ? task.activityUpdatedAt
+            : task.updatedAt;
+          return !value || candidate > value ? candidate : value;
+        },
+        null,
+      );
+      const quietDays = daysSince(latest, now);
+      return {
+        id: project.id,
+        name: projectNames[project.id] ?? project.name,
+        total: projectTasks.length,
+        open: open.length,
+        waitingOnYou: projectTasks.filter(
+          (task) => task.status === "in_review" || task.status === "blocked",
+        ).length,
+        quietDays,
+        doneLast7: projectTasks.filter(
+          (task) => task.status === "done" && daysSince(task.updatedAt, now) <= 7,
+        ).length,
+        tone: healthTone(projectTasks.length, quietDays),
+      };
+    }).sort((left, right) => {
+      const rank: Record<HealthTone, number> = { stalled: 0, quiet: 1, active: 2, empty: 3 };
+      return rank[left.tone] - rank[right.tone]
+        || right.waitingOnYou - left.waitingOnYou
+        || right.quietDays - left.quietDays
+        || left.name.localeCompare(right.name);
+    });
+  }, [isAllProjects, now, projectNames, projects, tasks]);
+
+  const stalledProjects = health.filter((project) => project.tone === "stalled");
+  const activeProjects = health.filter((project) => project.tone === "active");
+  const nextMove = buildNextMove({
+    waitingOnYou,
+    stalledProjects,
+    health,
+    agentQueue,
+  });
+  const doneLast7 = tasks.filter(
+    (task) => task.status === "done" && daysSince(task.updatedAt, now) <= 7,
+  ).length;
   const openCount = tasks.filter(isOpenTask).length;
-  const enteredToday = tasks.filter(
-    (task) => localDayKey(new Date(task.createdAt)) === todayKey,
-  ).length;
-  const deliveredToday = (taskBuckets.get("done") ?? []).filter(
-    (task) => localDayKey(new Date(task.activityUpdatedAt)) === todayKey,
-  ).length;
-  const blockedCount = (taskBuckets.get("blocked") ?? []).length;
-  const inFlight = (taskBuckets.get("in_progress") ?? []).length
-    + (taskBuckets.get("in_review") ?? []).length;
+  const unreadCount = waitingOnYou.filter((task) => presentations[task.id]?.unread).length;
+  const oldestWaiting = waitingOnYou[0] ?? null;
 
   const statusLine = automation.activeCount > 0
     ? text(
@@ -155,218 +171,322 @@ export function AgentOverviewView({
     : text("自动认领未开启", "Auto-claim is off");
 
   return (
-    <div className="agent-overview">
-      <div className="agent-overview-canvas">
-        <header className="agent-flow-hero">
-          <div className="agent-owner">
-            <ActorAvatar actor={currentUser} className="agent-owner-avatar" />
-            <div className="agent-owner-copy">
+    <div className="agent-overview solo">
+      <div className="solo-canvas">
+        <header className="solo-head">
+          <div className="solo-identity">
+            <ActorAvatar actor={currentUser} className="solo-avatar" />
+            <div>
               <strong>{currentUser.name}</strong>
-              <small>{text("项目负责人", "Project owner")}</small>
+              <small>{text("一人公司 · 项目操盘", "Solo operator")}</small>
             </div>
-            <span className={`agent-owner-badge${unreadCount > 0 ? " is-active" : ""}`}>
-              {text(`等你 ${unreadCount} 件`, `${unreadCount} waiting for you`)}
-            </span>
           </div>
-
-          <div className="agent-flow-arrow" aria-hidden="true" />
-
-          <div className="agent-hub">
-            <img className="agent-hub-mark" src="codex-agent-logo.png" alt="" aria-hidden="true" />
-            <div className="agent-hub-copy">
-              <strong>Codex Agent</strong>
-              <span>{statusLine}</span>
-            </div>
-            <span className={`agent-hub-state${automation.activeCount > 0 ? " is-on" : ""}`}>
-              {automation.activeCount > 0 ? text("已在岗", "On duty") : text("待机", "Standby")}
-            </span>
+          <div className={`solo-agent${automation.activeCount > 0 ? " is-on" : ""}`}>
+            <img src="codex-agent-logo.png" alt="" aria-hidden="true" />
+            <span>{statusLine}</span>
+            <i aria-hidden="true" />
+            {text(
+              `在做 ${agentQueue.length}`,
+              `${agentQueue.length} running`,
+            )}
           </div>
-
-          <dl className="agent-flow-kpis">
-            <div>
-              <dt>{text("今日进入", "Entered today")}</dt>
-              <dd>{enteredToday}</dd>
-            </div>
-            <div>
-              <dt>{text("流转中", "In flight")}</dt>
-              <dd>{inFlight}</dd>
-            </div>
-            <div>
-              <dt>{text("今日交付", "Delivered today")}</dt>
-              <dd>{deliveredToday}</dd>
-            </div>
-            <div className={blockedCount > 0 ? "is-alert" : undefined}>
-              <dt>{text("卡住", "Stuck")}</dt>
-              <dd>{blockedCount}</dd>
-            </div>
-          </dl>
         </header>
 
-        <div className="agent-flow-scroll">
-          <div className="agent-flow-track">
-            {STAGES.map((stage, index) => {
-              const stageTasks = taskBuckets.get(stage.status) ?? [];
-              return (
-                <div className="agent-flow-segment" key={stage.key}>
-                  {index > 0 && (
-                    <div className="agent-flow-connector" aria-hidden="true">
-                      <span className="agent-flow-connector-verb">
-                        {text(stage.enterVerb[0], stage.enterVerb[1])}
-                      </span>
-                      <span
-                        className={`agent-flow-connector-line${
-                          stageTasks.some((task) => presentations[task.id]?.processing.running)
-                            ? " is-flowing"
-                            : ""
-                        }`}
-                      >
-                        <i />
-                      </span>
-                    </div>
-                  )}
-                  <FlowStageColumn
-                    stage={stage}
-                    index={index + 1}
-                    tasks={stageTasks}
-                    presentations={presentations}
-                    language={language}
-                    locale={locale}
-                    text={text}
-                    now={now}
-                    projectNames={projectNames}
-                    isAllProjects={isAllProjects}
-                    onOpenTask={onOpenTask}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="agent-flow-side">
-          {SIDE_LANES.map((lane) => (
-            <FlowStageColumn
-              key={lane.key}
-              stage={lane}
-              tasks={taskBuckets.get(lane.status) ?? []}
-              side
-              presentations={presentations}
-              language={language}
-              locale={locale}
-              text={text}
-              now={now}
-              projectNames={projectNames}
-              isAllProjects={isAllProjects}
-              onOpenTask={onOpenTask}
-            />
-          ))}
-        </div>
-
-        <footer className="agent-flow-foot">
-          {text(
-            `${tasks.length} 个议题 · ${openCount} 个未结束 · 自动认领${
-              automation.activeCount > 0 ? "已开启" : "未开启"
-            }`,
-            `${tasks.length} issues · ${openCount} open · auto-claim ${
-              automation.activeCount > 0 ? "on" : "off"
-            }`,
+        <section className={`solo-verdict tone-${verdictTone(health, waitingOnYou.length)}`}>
+          <p className="solo-verdict-line">{buildVerdict({
+            isAllProjects,
+            waiting: waitingOnYou.length,
+            unread: unreadCount,
+            oldestWaiting,
+            stalled: stalledProjects,
+            activeCount: activeProjects.length,
+            emptyCount: health.filter((project) => project.tone === "empty").length,
+            now,
+            language,
+            text,
+          })}</p>
+          {nextMove && (
+            <button
+              type="button"
+              className="solo-next"
+              onClick={() => {
+                if (nextMove.task) onOpenTask(nextMove.task);
+                else if (nextMove.projectId) onSelectProject(nextMove.projectId);
+              }}
+            >
+              <span className="solo-next-label">{text("下一步", "Next step")}</span>
+              <span className="solo-next-text">{nextMove.label}</span>
+              <i aria-hidden="true" />
+            </button>
           )}
-        </footer>
+          <dl className="solo-figures">
+            <div className={waitingOnYou.length > 0 ? "is-hot" : undefined}>
+              <dt>{text("该我处理", "Needs me")}</dt>
+              <dd>{waitingOnYou.length}</dd>
+            </div>
+            <div>
+              <dt>{text("Agent 在做", "Agent working")}</dt>
+              <dd>{agentQueue.length}</dd>
+            </div>
+            <div>
+              <dt>{text("排队中", "Queued")}</dt>
+              <dd>{backlog.length}</dd>
+            </div>
+            <div className={stalledProjects.length > 0 ? "is-warn" : undefined}>
+              <dt>{text("荒废项目", "Starving")}</dt>
+              <dd>{stalledProjects.length}</dd>
+            </div>
+            <div>
+              <dt>{text("7 天交付", "Shipped 7d")}</dt>
+              <dd>{doneLast7}</dd>
+            </div>
+          </dl>
+        </section>
+
+        <div className="solo-main">
+          <section className="solo-panel solo-focus">
+            <header>
+              <h2>{text("现在轮到你", "Your turn")}</h2>
+              <span>{text(`${waitingOnYou.length} 件`, `${waitingOnYou.length} items`)}</span>
+            </header>
+            <div className="solo-list">
+              {waitingOnYou.slice(0, WAITING_LIMIT).map((task) => (
+                <button
+                  type="button"
+                  className={`solo-task tone-${task.status}`}
+                  key={task.id}
+                  onClick={() => onOpenTask(task)}
+                  title={task.title}
+                >
+                  <span className="solo-task-mark" aria-hidden="true" />
+                  <span className="solo-task-body">
+                    <span className="solo-task-title">{task.title}</span>
+                    <span className="solo-task-meta">
+                      <b>{task.externalKey ?? task.identifier}</b>
+                      <span>{projectNames[task.projectId] ?? task.projectId}</span>
+                      <span className="solo-task-state">
+                        {taskStatusLabel(language, task.status)}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="solo-task-age">
+                    {relativeDayLabel(daysSince(task.activityUpdatedAt, now), language)}
+                  </span>
+                </button>
+              ))}
+              {waitingOnYou.length === 0 && (
+                <div className="solo-empty">
+                  <strong>{text("现在没有等你的事", "Nothing waiting on you")}</strong>
+                  <span>
+                    {agentQueue.length > 0
+                      ? text(
+                          `Agent 还有 ${agentQueue.length} 件在做，做完会自动落到这里。`,
+                          `Agent is working on ${agentQueue.length}. Finished work lands here.`,
+                        )
+                      : text(
+                          "队列和 Agent 都空着，可以去推进最荒废的那个项目。",
+                          "Queue and agent are both empty. Go push the most starved project.",
+                        )}
+                  </span>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className="solo-panel solo-health">
+            <header>
+              <h2>{text("项目体温", "Project health")}</h2>
+              <span>{text(`${health.length} 个`, `${health.length} projects`)}</span>
+            </header>
+            <div className="solo-health-list">
+              {health.map((project) => (
+                <button
+                  type="button"
+                  className={`solo-project tone-${project.tone}`}
+                  key={project.id}
+                  onClick={() => onSelectProject(project.id)}
+                  title={text(
+                    `打开 ${project.name}`,
+                    `Open ${project.name}`,
+                  )}
+                >
+                  <span className="solo-project-bar" aria-hidden="true" />
+                  <span className="solo-project-main">
+                    <span className="solo-project-name">{project.name}</span>
+                    <span className="solo-project-facts">
+                      {project.total === 0
+                        ? text("还没有议题", "No issues yet")
+                        : text(
+                            `${project.open} 未结束 · ${project.doneLast7} 件 7 天交付`,
+                            `${project.open} open · ${project.doneLast7} shipped in 7d`,
+                          )}
+                    </span>
+                  </span>
+                  <span className="solo-project-tail">
+                    {project.waitingOnYou > 0 && (
+                      <b className="solo-project-waiting">
+                        {text(`${project.waitingOnYou} 件等你`, `${project.waitingOnYou} for you`)}
+                      </b>
+                    )}
+                    <span className="solo-project-quiet">
+                      {text(
+                        `动静 ${relativeDayLabel(project.quietDays, language)}`,
+                        `Last ${relativeDayLabel(project.quietDays, language)}`,
+                      )}
+                    </span>
+                  </span>
+                </button>
+              ))}
+              {health.length === 0 && (
+                <div className="solo-empty">
+                  <strong>{text("还没有项目", "No projects yet")}</strong>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
+        <section className="solo-flow">
+          <span className="solo-flow-label">{text("流水线", "Pipeline")}</span>
+          {FLOW.map((step, index) => {
+            const count = tasks.filter((task) => task.status === step.status).length;
+            return (
+              <div className={`solo-flow-step tone-${step.status}`} key={step.status}>
+                {index > 0 && <i className="solo-flow-arrow" aria-hidden="true" />}
+                <span>{taskStatusLabel(language, step.status)}</span>
+                <b>{count}</b>
+              </div>
+            );
+          })}
+          <span className="solo-flow-foot">
+            {text(
+              `共 ${tasks.length} 个议题 · ${openCount} 个未结束`,
+              `${tasks.length} issues · ${openCount} open`,
+            )}
+          </span>
+        </section>
       </div>
     </div>
   );
 }
 
-function FlowStageColumn({
-  stage,
-  index,
-  tasks,
-  side = false,
-  presentations,
-  language,
-  locale,
-  text,
-  now,
-  projectNames,
+const FLOW: { status: TaskStatus }[] = [
+  { status: "backlog" },
+  { status: "todo" },
+  { status: "in_progress" },
+  { status: "in_review" },
+  { status: "done" },
+];
+
+function verdictTone(health: ProjectHealth[], waiting: number) {
+  if (health.some((project) => project.tone === "stalled")) return "warn";
+  if (waiting > 0) return "hot";
+  return "calm";
+}
+
+function buildVerdict({
   isAllProjects,
-  onOpenTask,
+  waiting,
+  unread,
+  oldestWaiting,
+  stalled,
+  activeCount,
+  emptyCount,
+  now,
+  language,
+  text,
 }: {
-  stage: FlowStage;
-  index?: number;
-  tasks: Task[];
-  side?: boolean;
-  presentations: Record<string, TaskCardPresentation>;
-  language: TaskboardLanguage;
-  locale: string;
-  text: (chinese: string, english: string) => string;
-  now: number;
-  projectNames: Record<string, string>;
   isAllProjects: boolean;
-  onOpenTask: (task: Pick<Task, "identifier" | "projectId">) => void;
+  waiting: number;
+  unread: number;
+  oldestWaiting: Task | null;
+  stalled: ProjectHealth[];
+  activeCount: number;
+  emptyCount: number;
+  now: number;
+  language: TaskboardLanguage;
+  text: (chinese: string, english: string) => string;
 }) {
-  const oldest = tasks.reduce<string | null>(
-    (value, task) => (!value || task.activityUpdatedAt < value ? task.activityUpdatedAt : value),
-    null,
-  );
-
-  return (
-    <section
-      className={`agent-stage status-${stage.status}${side ? " is-side" : ""}`}
-      aria-label={taskStatusLabel(language, stage.status)}
-    >
-      <header className="agent-stage-header">
-        <span className="agent-stage-dot" aria-hidden="true" />
-        {index !== undefined && <span className="agent-stage-index">{index}</span>}
-        <strong>{taskStatusLabel(language, stage.status)}</strong>
-        <b>{tasks.length}</b>
-      </header>
-      <p className="agent-stage-caption">{text(stage.caption[0], stage.caption[1])}</p>
-
-      <div className="agent-stage-list">
-        {tasks.map((task) => {
-          const running = presentations[task.id]?.processing.running;
-          const unread = presentations[task.id]?.unread;
-          return (
-            <button
-              type="button"
-              className={`agent-flow-card${running ? " is-running" : ""}${unread ? " is-unread" : ""}`}
-              key={task.id}
-              onClick={() => onOpenTask(task)}
-              title={task.title}
-            >
-              <span className="agent-flow-card-top">
-                <span className="agent-flow-card-id">{task.externalKey ?? task.identifier}</span>
-                {running && (
-                  <span className="agent-flow-card-running">{text("执行中", "Running")}</span>
-                )}
-                {!running && unread && (
-                  <span className="agent-flow-card-unread">{text("未读", "Unread")}</span>
-                )}
-                <time>{timeLabel(task.activityUpdatedAt, locale)}</time>
-              </span>
-              <span className="agent-flow-card-title">{task.title}</span>
-              <span className="agent-flow-card-foot">
-                <ActorAvatar actor={task.assignee} className="agent-flow-card-avatar" />
-                <span className="agent-flow-card-assignee">{task.assignee.name}</span>
-                {isAllProjects && (
-                  <span className="agent-flow-card-project">
-                    {projectNames[task.projectId] ?? task.projectId}
-                  </span>
-                )}
-              </span>
-            </button>
-          );
-        })}
-        {tasks.length === 0 && (
-          <div className="agent-stage-empty">{text("此阶段暂无议题", "Nothing in this stage")}</div>
-        )}
-      </div>
-
-      {oldest && (
-        <p className="agent-stage-age">
-          {text("最久滞留", "Oldest")} {durationLabel(oldest, now, locale, text)}
-        </p>
-      )}
-    </section>
+  if (waiting > 0) {
+    const age = oldestWaiting
+      ? relativeDayLabel(daysSince(oldestWaiting.activityUpdatedAt, now), language)
+      : "";
+    return text(
+      `${waiting} 件事在等你${unread > 0 ? `（${unread} 件未读）` : ""}，最久的一件候了 ${age}。`,
+      `${waiting} items need you${unread > 0 ? ` (${unread} unread)` : ""}; oldest waiting ${age}.`,
+    );
+  }
+  if (stalled.length > 0) {
+    const names = stalled.slice(0, 2).map((project) => project.name).join("、");
+    return text(
+      `手头没有待办，但 ${names} 已经超过 ${STALE_DAYS} 天没动静了。`,
+      `Nothing waiting, but ${names} has been quiet for ${STALE_DAYS}+ days.`,
+    );
+  }
+  if (!isAllProjects) {
+    return text(
+      "这个项目的待办都清了，没有卡住的事。",
+      "This project is clear — nothing pending or stuck.",
+    );
+  }
+  if (emptyCount > 0) {
+    return text(
+      `${activeCount} 个在推进，${emptyCount} 个还没开工，没有项目掉队。`,
+      `${activeCount} moving, ${emptyCount} not started — nothing is starving.`,
+    );
+  }
+  return text(
+    "所有项目都在近期有推进，没有掉队的。",
+    "Every project has moved recently — nothing is starving.",
   );
 }
+
+interface NextMove {
+  label: string;
+  task?: Task;
+  projectId?: string;
+}
+
+/**
+ * One concrete suggestion instead of a dashboard full of numbers a solo
+ * operator still has to interpret. Priority: unblock the review queue,
+ * then restart a starving project, then give the empty pipeline a first issue.
+ */
+function buildNextMove({
+  waitingOnYou,
+  stalledProjects,
+  health,
+  agentQueue,
+}: {
+  waitingOnYou: Task[];
+  stalledProjects: ProjectHealth[];
+  health: ProjectHealth[];
+  agentQueue: Task[];
+}): NextMove | null {
+  const oldest = waitingOnYou[0];
+  if (oldest) {
+    return {
+      label: `${oldest.externalKey ?? oldest.identifier} ${oldest.title}`,
+      task: oldest,
+    };
+  }
+  if (stalledProjects.length > 0) {
+    const target = stalledProjects[0];
+    return {
+      label: `回到 ${target.name}（${target.quietDays} 天没动）`,
+      projectId: target.id,
+    };
+  }
+  const notStarted = health.find((project) => project.tone === "empty");
+  if (notStarted) {
+    return {
+      label: `给 ${notStarted.name} 立第一个议题`,
+      projectId: notStarted.id,
+    };
+  }
+  if (agentQueue.length > 0) {
+    return { label: `等 Agent 做完 ${agentQueue.length} 件，暂时不用你` };
+  }
+  return null;
+}
+
