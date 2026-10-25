@@ -1675,7 +1675,7 @@ export function App() {
     setDetailTaskIdentifier(null);
     if (sourceProjectId !== selectedProjectId) {
       setSelectedProjectId(sourceProjectId);
-      setBoardView(sourceProjectId === ALL_PROJECTS_ID ? "issues" : readProjectBoardView(sourceProjectId));
+      setBoardView(readProjectBoardView(sourceProjectId));
     }
     const url = buildIssueUrl(window.location.href, sourceProjectId, null);
     window.history.replaceState(window.history.state, "", url);
@@ -1730,7 +1730,7 @@ export function App() {
       if (!routeIssueIdentifier) detailSourceProjectIdRef.current = null;
       setDetailTaskIdentifier(routeIssueIdentifier);
       if (routeProjectId === selectedProjectId) return;
-      setBoardView(routeProjectId === ALL_PROJECTS_ID ? "issues" : readProjectBoardView(routeProjectId));
+      setBoardView(readProjectBoardView(routeProjectId));
       setSelectedProjectId(routeProjectId);
     }
 
@@ -1760,7 +1760,7 @@ export function App() {
 
   useEffect(() => {
     if (selectedProjectId) {
-      setBoardView(selectedProjectId === ALL_PROJECTS_ID ? "issues" : readProjectBoardView(selectedProjectId));
+      setBoardView(readProjectBoardView(selectedProjectId));
     }
   }, [selectedProjectId]);
 
@@ -3227,7 +3227,7 @@ export function App() {
     setProjectMenuOpen(false);
     detailSourceProjectIdRef.current = null;
     setDetailTaskIdentifier(null);
-    setBoardView(projectId === ALL_PROJECTS_ID ? "issues" : readProjectBoardView(projectId));
+    setBoardView(readProjectBoardView(projectId));
     if (projectId !== ALL_PROJECTS_ID) rememberProjectOpen(projectId);
     setSelectedProjectId(projectId);
     setSearch("");
@@ -3888,6 +3888,7 @@ export function App() {
           <AgentOverviewView
             key={selectedProjectId}
             isAllProjects={isAllProjects}
+            selectedProjectId={isAllProjects ? null : selectedProjectId}
             currentUser={currentUser}
             tasks={tasks}
             projects={projects}

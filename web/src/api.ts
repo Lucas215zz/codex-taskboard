@@ -164,6 +164,26 @@ export async function updateProjectMetric(
   return data.project;
 }
 
+export async function getClientStorageEntries(
+  signal?: AbortSignal,
+): Promise<Record<string, string>> {
+  const data = await request<{ entries?: Record<string, string> }>(
+    "/api/client-storage",
+    { signal },
+  );
+  return data.entries ?? {};
+}
+
+export async function updateClientStorageEntry(
+  key: string,
+  value: string | null,
+): Promise<void> {
+  await request<unknown>("/api/client-storage", {
+    method: "PATCH",
+    body: JSON.stringify({ key, value }),
+  });
+}
+
 export async function getJiraConnection(signal?: AbortSignal): Promise<JiraConnection> {
   try {
     const data = await request<{ connection: JiraConnection }>("/api/local/jira-connection", { signal });

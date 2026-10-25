@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import "./AgentOverviewView.css";
 import { useTaskboardI18n, taskStatusLabel } from "../i18n";
@@ -6,7 +6,19 @@ import type { TaskboardLanguage } from "../i18n";
 import type { ActorIdentity, Project, Task } from "../types";
 import type { TaskCardPresentation } from "../taskConversations";
 import { ActorAvatar } from "./ActorAvatar";
-import { updateProjectMetric } from "../api";
+import { getClientStorageEntries, updateClientStorageEntry, updateProjectMetric } from "../api";
+import {
+  DEPARTMENT_STORAGE_KEY,
+  DEFAULT_DEPARTMENT_SETTINGS,
+  UNCLASSIFIED_DEPARTMENT_ID,
+  departmentName,
+  departmentOfLabels,
+  parseDepartmentSettings,
+  resolveDepartments,
+  resolveLabelDepartments,
+  serializeDepartmentSettings,
+} from "../departments";
+import type { Department, DepartmentSettings } from "../departments";
 
 export interface AgentAutomationSummary {
   activeCount: number;
@@ -15,6 +27,7 @@ export interface AgentAutomationSummary {
 
 interface AgentOverviewViewProps {
   isAllProjects: boolean;
+  selectedProjectId: string | null;
   currentUser: ActorIdentity;
   tasks: Task[];
   projects: Project[];
@@ -27,22 +40,43 @@ interface AgentOverviewViewProps {
 }
 
 const DAY_MS = 86_400_000;
-const STALE_DAYS = 7;
-const QUIET_DAYS = 3;
-const RECENT_TASKS_PER_PROJECT = 5;
+const RECENT_TASKS_PER_TEAM = 4;
 const HIDE_NAMES_KEY = "taskboard:hideProjectNames";
+const PRIORITY_ORDER: Record<string, number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  none: 4,
+};
 
-type HealthTone = "active" | "quiet" | "stalled" | "empty";
+interface PipelineCounts {
+  todo: number;
+  inProgress: number;
+  waiting: number;
+  done7: number;
+  total: number;
+}
 
-interface ProjectHealth {
+interface TeamSummary {
+  projectId: string;
+  name: string;
+  counts: PipelineCounts;
+  activeTasks: Task[];
+  quietDays: number;
+}
+
+interface UnitSummary {
   id: string;
   name: string;
-  total: number;
-  open: number;
-  waitingOnYou: number;
-  quietDays: number;
-  doneLast7: number;
-  tone: HealthTone;
+  nameEn: string;
+  isUnclassified: boolean;
+  counts: PipelineCounts;
+  teams: TeamSummary[];
+}
+
+function emptyCounts(): PipelineCounts {
+  return { todo: 0, inProgress: 0, waiting: 0, done7: 0, total: 0 };
 }
 
 function daysSince(value: string | null | undefined, now: number) {
@@ -52,15 +86,32 @@ function daysSince(value: string | null | undefined, now: number) {
   return Math.max(0, Math.floor((now - time) / DAY_MS));
 }
 
+function isWaitingTask(task: Task) {
+  return task.status === "in_review" || task.status === "blocked";
+}
+
 function isOpenTask(task: Task) {
   return task.status !== "done" && task.status !== "canceled";
 }
 
-function healthTone(total: number, quietDays: number): HealthTone {
-  if (total === 0) return "empty";
-  if (quietDays >= STALE_DAYS) return "stalled";
-  if (quietDays >= QUIET_DAYS) return "quiet";
-  return "active";
+function countPipeline(tasks: Task[], now: number): PipelineCounts {
+  const counts = emptyCounts();
+  for (const task of tasks) {
+    counts.total += 1;
+    if (task.status === "todo") counts.todo += 1;
+    else if (task.status === "in_progress") counts.inProgress += 1;
+    else if (isWaitingTask(task)) counts.waiting += 1;
+    if (task.status === "done" && daysSince(task.updatedAt, now) <= 7) counts.done7 += 1;
+  }
+  return counts;
+}
+
+function addCounts(target: PipelineCounts, source: PipelineCounts) {
+  target.todo += source.todo;
+  target.inProgress += source.inProgress;
+  target.waiting += source.waiting;
+  target.done7 += source.done7;
+  target.total += source.total;
 }
 
 function relativeDayLabel(days: number, language: TaskboardLanguage) {
@@ -76,11 +127,42 @@ function timeLabel(date: Date) {
   return `${h}:${m}`;
 }
 
-/* ---------- project card ---------- */
+/* ---------- pipeline bar ---------- */
 
-interface ProjectCardProps {
-  health: ProjectHealth;
-  tasks: Task[];
+function Pipeline({
+  counts,
+  text,
+}: {
+  counts: PipelineCounts;
+  text: (zh: string, en: string) => string;
+}) {
+  return (
+    <div className="org-pipeline">
+      <span className="org-stage tone-todo">
+        <i aria-hidden="true" />
+        {counts.todo} {text("待办", "todo")}
+      </span>
+      <span className="org-stage tone-progress">
+        <i aria-hidden="true" />
+        {counts.inProgress} {text("处理中", "running")}
+      </span>
+      <span className="org-stage tone-waiting">
+        <i aria-hidden="true" />
+        {counts.waiting} {text("等我", "for me")}
+      </span>
+      <span className="org-stage tone-done">
+        <i aria-hidden="true" />
+        {counts.done7} {text("7 天交付", "7d shipped")}
+      </span>
+    </div>
+  );
+}
+
+/* ---------- team (project) leaf ---------- */
+
+interface TeamRowProps {
+  team: TeamSummary;
+  project: Project | undefined;
   language: TaskboardLanguage;
   text: (zh: string, en: string) => string;
   hideNames: boolean;
@@ -89,12 +171,11 @@ interface ProjectCardProps {
   onOpenTask: (task: Pick<Task, "identifier" | "projectId">) => void;
   onSelectProject: (projectId: string) => void;
   onProjectMetricUpdated: (project: Project) => void;
-  project: Project;
 }
 
-function ProjectCard({
-  health,
-  tasks,
+function TeamRow({
+  team,
+  project,
   language,
   text,
   hideNames,
@@ -103,32 +184,18 @@ function ProjectCard({
   onOpenTask,
   onSelectProject,
   onProjectMetricUpdated,
-  project,
-}: ProjectCardProps) {
+}: TeamRowProps) {
   const [editing, setEditing] = useState(false);
   const [editLabel, setEditLabel] = useState("");
   const [editValue, setEditValue] = useState("");
 
   const displayName = hideNames
     ? `${text("项目", "Project")} ${String.fromCharCode(65 + displayIndex)}`
-    : health.name;
+    : team.name;
 
-  const metricLabel = project.mainMetricLabel;
-  const metricValue = project.mainMetricValue;
-
-  const recentTasks = useMemo(() => tasks
-    .filter((task) => task.projectId === health.id)
-    .sort((left, right) => right.activityUpdatedAt.localeCompare(left.activityUpdatedAt))
-    .slice(0, RECENT_TASKS_PER_PROJECT),
-  [tasks, health.id]);
-
-  const openCount = tasks.filter(
-    (task) => task.projectId === health.id && task.status === "in_progress",
-  ).length;
-  const waitingCount = tasks.filter(
-    (task) => task.projectId === health.id
-      && (task.status === "in_review" || task.status === "blocked"),
-  ).length;
+  const metricLabel = project?.mainMetricLabel ?? null;
+  const metricValue = project?.mainMetricValue ?? null;
+  const hasCustomMetric = Boolean(metricValue && metricLabel);
 
   const startEdit = useCallback(() => {
     setEditLabel(metricLabel ?? "");
@@ -137,135 +204,199 @@ function ProjectCard({
   }, [metricLabel, metricValue]);
 
   const saveEdit = useCallback(async () => {
+    if (!project) return;
     const label = editLabel.trim() || null;
     const value = editValue.trim() || null;
     setEditing(false);
     try {
-      const updated = await updateProjectMetric(health.id, {
+      const updated = await updateProjectMetric(project.id, {
         mainMetricLabel: label,
         mainMetricValue: value,
       });
       onProjectMetricUpdated(updated);
     } catch {
-      // Silently revert — the next refresh will restore the true state.
+      // Silently revert — the next refresh restores the true state.
     }
-  }, [editLabel, editValue, health.id, onProjectMetricUpdated]);
+  }, [editLabel, editValue, project, onProjectMetricUpdated]);
 
-  const toneIcon: Record<HealthTone, string> = {
-    active: "●",
-    quiet: "◐",
-    stalled: "○",
-    empty: "◌",
+  return (
+    <div className="org-team">
+      <div className="org-team-head">
+        <span className="org-team-branch" aria-hidden="true" />
+        <button
+          type="button"
+          className="org-team-name"
+          onClick={() => onSelectProject(team.projectId)}
+          title={text("打开项目", "Open project")}
+        >
+          {displayName}
+        </button>
+        <span className="org-team-activity">
+          {text("动静", "last")} {relativeDayLabel(team.quietDays, language)}
+        </span>
+        <Pipeline counts={team.counts} text={text} />
+        <div className="org-team-metric">
+          {editing ? (
+            <div className="org-metric-edit">
+              <input
+                className="org-metric-input"
+                placeholder={text("指标名称", "Metric label")}
+                value={editLabel}
+                onChange={(event) => setEditLabel(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") void saveEdit(); }}
+                autoFocus
+              />
+              <input
+                className="org-metric-input"
+                placeholder={text("数值", "Value")}
+                value={editValue}
+                onChange={(event) => setEditValue(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") void saveEdit(); }}
+              />
+              <div className="org-metric-actions">
+                <button type="button" onClick={() => void saveEdit()}>
+                  {text("确定", "Save")}
+                </button>
+                <button type="button" onClick={() => setEditing(false)}>
+                  {text("取消", "Cancel")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {hasCustomMetric && (
+                <>
+                  <span className="org-metric-value">{metricValue}</span>
+                  <span className="org-metric-label">{metricLabel}</span>
+                </>
+              )}
+              <button
+                type="button"
+                className="org-metric-edit-btn"
+                onClick={startEdit}
+                title={text("编辑主指标", "Edit main metric")}
+                aria-label={text("编辑主指标", "Edit main metric")}
+              >
+                ✎
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {team.activeTasks.length > 0 && (
+        <ul className="org-tasklist">
+          {team.activeTasks.map((task) => {
+            const presentation = presentations[task.id];
+            const unread = presentation?.unread ?? false;
+            return (
+              <li key={task.id}>
+                <button
+                  type="button"
+                  className={`org-task${unread ? " is-unread" : ""}`}
+                  onClick={() => onOpenTask(task)}
+                  title={task.title}
+                >
+                  <span className={`org-task-dot tone-${task.status}`} aria-hidden="true" />
+                  <span className="org-task-id">{task.identifier}</span>
+                  <span className="org-task-title">{task.title}</span>
+                  <span className="org-task-status">{taskStatusLabel(language, task.status)}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ---------- department settings ---------- */
+
+interface DepartmentSettingsPanelProps {
+  labels: string[];
+  departments: Department[];
+  settings: DepartmentSettings;
+  language: TaskboardLanguage;
+  text: (zh: string, en: string) => string;
+  onChange: (settings: DepartmentSettings) => void;
+  onClose: () => void;
+}
+
+function DepartmentSettingsPanel({
+  labels,
+  departments,
+  settings,
+  language,
+  text,
+  onChange,
+  onClose,
+}: DepartmentSettingsPanelProps) {
+  const [newName, setNewName] = useState("");
+  const effective = resolveLabelDepartments(settings);
+
+  const assign = (label: string, departmentId: string) => {
+    const map = { ...settings.map };
+    // Keep an explicit empty value so "未归类" overrides the built-in default.
+    map[label] = departmentId;
+    onChange({ ...settings, map });
+  };
+
+  const addDepartment = () => {
+    const name = newName.trim();
+    if (!name) return;
+    const id = `custom-${Date.now().toString(36)}`;
+    setNewName("");
+    onChange({
+      ...settings,
+      extra: [...settings.extra, { id, name, nameEn: name }],
+    });
   };
 
   return (
-    <div className={`cockpit-project tone-${health.tone}`}>
-      {/* metric area */}
-      <div className="cockpit-project-metric">
-        {editing ? (
-          <div className="cockpit-metric-edit">
-            <input
-              className="cockpit-metric-input"
-              placeholder={text("指标名称", "Metric label")}
-              value={editLabel}
-              onChange={(event) => setEditLabel(event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") void saveEdit(); }}
-              autoFocus
-            />
-            <input
-              className="cockpit-metric-input"
-              placeholder={text("数值", "Value")}
-              value={editValue}
-              onChange={(event) => setEditValue(event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") void saveEdit(); }}
-            />
-            <div className="cockpit-metric-actions">
-              <button type="button" onClick={() => void saveEdit()}>
-                {text("确定", "Save")}
-              </button>
-              <button type="button" onClick={() => setEditing(false)}>
-                {text("取消", "Cancel")}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {metricValue && metricLabel ? (
-              <div className="cockpit-metric-custom">
-                <strong>{metricValue}</strong>
-                <span>{metricLabel}</span>
-              </div>
-            ) : (
-              <div className="cockpit-metric-auto">
-                <strong>{health.doneLast7}</strong>
-                <span>{text("7 天交付", "7d shipped")}</span>
-              </div>
-            )}
-            <button
-              type="button"
-              className="cockpit-metric-edit-btn"
-              onClick={startEdit}
-              title={text("编辑主指标", "Edit main metric")}
-              aria-label={text("编辑主指标", "Edit main metric")}
+    <section className="org-settings">
+      <header className="org-settings-head">
+        <strong>{text("组织架构设置", "Org settings")}</strong>
+        <span>
+          {text(
+            "把任务标签归到部门；没有部门的任务会落在「未归类」",
+            "Assign task labels to departments; tasks without one land in Unclassified",
+          )}
+        </span>
+        <button type="button" className="org-settings-close" onClick={onClose}>
+          {text("收起", "Close")}
+        </button>
+      </header>
+      <div className="org-settings-grid">
+        {labels.map((label) => (
+          <label className="org-settings-row" key={label}>
+            <span className="org-settings-label">{label}</span>
+            <select
+              value={effective.get(label) ?? ""}
+              onChange={(event) => assign(label, event.target.value)}
             >
-              ✎
-            </button>
-          </>
-        )}
+              <option value="">{text("未归类", "Unclassified")}</option>
+              {departments.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {departmentName(department, language)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
       </div>
-
-      {/* header */}
-      <button
-        type="button"
-        className="cockpit-project-head"
-        onClick={() => onSelectProject(health.id)}
-      >
-        <span className="cockpit-project-icon" aria-hidden="true">
-          {toneIcon[health.tone]}
-        </span>
-        <span className="cockpit-project-name">{displayName}</span>
-        <span className="cockpit-project-badge">
-          {openCount > 0 && (
-            <em className="is-active">{openCount} {text("在做", "active")}</em>
-          )}
-          {waitingCount > 0 && (
-            <em className="is-waiting">{waitingCount} {text("等你", "for you")}</em>
-          )}
-        </span>
-      </button>
-
-      {/* stats row */}
-      <div className="cockpit-project-stats">
-        <span>{health.open} {text("未结束", "open")}</span>
-        <i aria-hidden="true">·</i>
-        <span>{text("动静", "last")} {relativeDayLabel(health.quietDays, language)}</span>
+      <div className="org-settings-new">
+        <input
+          value={newName}
+          placeholder={text("新部门名称", "New department name")}
+          onChange={(event) => setNewName(event.target.value)}
+          onKeyDown={(event) => { if (event.key === "Enter") addDepartment(); }}
+        />
+        <button type="button" onClick={addDepartment}>
+          {text("新建部门", "Add department")}
+        </button>
       </div>
-
-      {/* recent tasks */}
-      {recentTasks.length > 0 && (
-        <div className="cockpit-project-tasks">
-          {recentTasks.map((task) => {
-            const presentation = presentations[task.id];
-            const isUnread = presentation?.unread ?? false;
-            return (
-              <button
-                type="button"
-                className={`cockpit-task${isUnread ? " is-unread" : ""}`}
-                key={task.id}
-                onClick={() => onOpenTask(task)}
-                title={task.title}
-              >
-                <span className={`cockpit-task-dot tone-${task.status}`} aria-hidden="true" />
-                <span className="cockpit-task-title">{task.title}</span>
-                <span className="cockpit-task-status">
-                  {taskStatusLabel(language, task.status)}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
+    </section>
   );
 }
 
@@ -273,6 +404,7 @@ function ProjectCard({
 
 export function AgentOverviewView({
   isAllProjects,
+  selectedProjectId,
   currentUser,
   tasks,
   projects,
@@ -298,67 +430,154 @@ export function AgentOverviewView({
     });
   }, []);
 
-  const waitingOnYou = useMemo(() => tasks
-    .filter((task) => task.status === "in_review" || task.status === "blocked")
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<DepartmentSettings>(DEFAULT_DEPARTMENT_SETTINGS);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getClientStorageEntries()
+      .then((entries) => {
+        if (cancelled) return;
+        setSettings(parseDepartmentSettings(entries[DEPARTMENT_STORAGE_KEY] ?? null));
+      })
+      .catch(() => { /* keep defaults */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const persistSettings = useCallback((next: DepartmentSettings) => {
+    setSettings(next);
+    void updateClientStorageEntry(
+      DEPARTMENT_STORAGE_KEY,
+      serializeDepartmentSettings(next),
+    ).catch(() => { /* keep the local state */ });
+  }, []);
+
+  const departments = useMemo(() => resolveDepartments(settings), [settings]);
+  const labelDepartments = useMemo(() => resolveLabelDepartments(settings), [settings]);
+
+  const scopedTasks = useMemo(() => (
+    isAllProjects || !selectedProjectId
+      ? tasks
+      : tasks.filter((task) => task.projectId === selectedProjectId)
+  ), [isAllProjects, selectedProjectId, tasks]);
+
+  const units = useMemo<UnitSummary[]>(() => {
+    const unitMap = new Map<string, UnitSummary>();
+    const teamsByUnit = new Map<string, Map<string, TeamSummary>>();
+    const latestByProject = new Map<string, string>();
+
+    for (const task of scopedTasks) {
+      const activityAt = task.activityUpdatedAt > task.updatedAt
+        ? task.activityUpdatedAt
+        : task.updatedAt;
+      const knownLatest = latestByProject.get(task.projectId);
+      if (!knownLatest || activityAt > knownLatest) {
+        latestByProject.set(task.projectId, activityAt);
+      }
+
+      const departmentId = departmentOfLabels(task.labels, labelDepartments)
+        ?? UNCLASSIFIED_DEPARTMENT_ID;
+      let unit = unitMap.get(departmentId);
+      if (!unit) {
+        const definition = departments.find((candidate) => candidate.id === departmentId);
+        unit = {
+          id: departmentId,
+          name: departmentId === UNCLASSIFIED_DEPARTMENT_ID
+            ? text("未归类", "Unclassified")
+            : definition?.name ?? departmentId,
+          nameEn: departmentId === UNCLASSIFIED_DEPARTMENT_ID
+            ? "Unclassified"
+            : definition?.nameEn ?? departmentId,
+          isUnclassified: departmentId === UNCLASSIFIED_DEPARTMENT_ID,
+          counts: emptyCounts(),
+          teams: [],
+        };
+        unitMap.set(departmentId, unit);
+      }
+      addCounts(unit.counts, countPipeline([task], now));
+
+      let teams = teamsByUnit.get(departmentId);
+      if (!teams) {
+        teams = new Map<string, TeamSummary>();
+        teamsByUnit.set(departmentId, teams);
+      }
+      let team = teams.get(task.projectId);
+      if (!team) {
+        team = {
+          projectId: task.projectId,
+          name: projectNames[task.projectId] ?? task.projectId,
+          counts: emptyCounts(),
+          activeTasks: [],
+          quietDays: 0,
+        };
+        teams.set(task.projectId, team);
+        unit.teams.push(team);
+      }
+      addCounts(team.counts, countPipeline([task], now));
+      if (isOpenTask(task)) team.activeTasks.push(task);
+    }
+
+    for (const unit of unitMap.values()) {
+      for (const team of unit.teams) {
+        team.activeTasks = team.activeTasks
+          .sort((left, right) => (
+            (PRIORITY_ORDER[left.priority] ?? 9) - (PRIORITY_ORDER[right.priority] ?? 9)
+            || left.updatedAt.localeCompare(right.updatedAt)
+          ))
+          .slice(0, RECENT_TASKS_PER_TEAM);
+        team.quietDays = daysSince(latestByProject.get(team.projectId) ?? null, now);
+      }
+      unit.teams.sort((left, right) => (
+        right.counts.total - left.counts.total
+        || right.counts.inProgress - left.counts.inProgress
+      ));
+    }
+
+    return [...unitMap.values()].sort((left, right) => (
+      (left.isUnclassified ? 1 : 0) - (right.isUnclassified ? 1 : 0)
+      || right.counts.waiting - left.counts.waiting
+      || right.counts.inProgress - left.counts.inProgress
+      || right.counts.total - left.counts.total
+    ));
+  }, [scopedTasks, projectNames, labelDepartments, departments, now, text]);
+
+  const labelsInUse = useMemo(() => {
+    const labels = new Set<string>();
+    for (const task of scopedTasks) {
+      for (const label of task.labels) labels.add(label);
+    }
+    return [...labels].sort((left, right) => left.localeCompare(right));
+  }, [scopedTasks]);
+
+  const projectOrder = useMemo(() => {
+    const order = new Map<string, number>();
+    for (const unit of units) {
+      for (const team of unit.teams) {
+        if (!order.has(team.projectId)) order.set(team.projectId, order.size);
+      }
+    }
+    return order;
+  }, [units]);
+
+  const waitingOnYou = useMemo(() => scopedTasks
+    .filter(isWaitingTask)
     .sort((left, right) => {
       const leftUnread = presentations[left.id]?.unread ? 1 : 0;
       const rightUnread = presentations[right.id]?.unread ? 1 : 0;
       return rightUnread - leftUnread
         || left.activityUpdatedAt.localeCompare(right.activityUpdatedAt);
-    }), [presentations, tasks]);
+    }), [presentations, scopedTasks]);
 
-  const agentQueue = useMemo(() => tasks
-    .filter((task) => task.status === "in_progress")
-    .sort((left, right) => left.activityUpdatedAt.localeCompare(right.activityUpdatedAt)),
-  [tasks]);
-
-  const health = useMemo<ProjectHealth[]>(() => {
-    const scope = isAllProjects
-      ? projects
-      : projects.filter((project) => tasks.some((task) => task.projectId === project.id));
-    return scope.map((project) => {
-      const projectTasks = tasks.filter((task) => task.projectId === project.id);
-      const open = projectTasks.filter(isOpenTask);
-      const latest = projectTasks.reduce<string | null>(
-        (value, task) => {
-          const candidate = task.activityUpdatedAt > task.updatedAt
-            ? task.activityUpdatedAt
-            : task.updatedAt;
-          return !value || candidate > value ? candidate : value;
-        },
-        null,
-      );
-      const quietDays = daysSince(latest, now);
-      return {
-        id: project.id,
-        name: projectNames[project.id] ?? project.name,
-        total: projectTasks.length,
-        open: open.length,
-        waitingOnYou: projectTasks.filter(
-          (task) => task.status === "in_review" || task.status === "blocked",
-        ).length,
-        quietDays,
-        doneLast7: projectTasks.filter(
-          (task) => task.status === "done" && daysSince(task.updatedAt, now) <= 7,
-        ).length,
-        tone: healthTone(projectTasks.length, quietDays),
-      };
-    }).sort((left, right) => {
-      const rank: Record<HealthTone, number> = { stalled: 0, quiet: 1, active: 2, empty: 3 };
-      return rank[left.tone] - rank[right.tone]
-        || right.waitingOnYou - left.waitingOnYou
-        || right.quietDays - left.quietDays
-        || left.name.localeCompare(right.name);
-    });
-  }, [isAllProjects, now, projectNames, projects, tasks]);
-
-  const stalledProjects = health.filter((project) => project.tone === "stalled");
-  const activeProjects = health.filter((project) => project.tone === "active");
-  const emptyProjects = health.filter((project) => project.tone === "empty");
-  const openCount = tasks.filter(isOpenTask).length;
+  const runningCount = scopedTasks.filter((task) => task.status === "in_progress").length;
+  const openCount = scopedTasks.filter(isOpenTask).length;
   const unreadCount = waitingOnYou.filter((task) => presentations[task.id]?.unread).length;
-  const doneLast7 = tasks.filter(
+  const doneLast7 = scopedTasks.filter(
     (task) => task.status === "done" && daysSince(task.updatedAt, now) <= 7,
+  ).length;
+  const activeUnits = units.filter((unit) => unit.counts.inProgress > 0).length;
+  const unclassified = units.find((unit) => unit.isUnclassified);
+  const stalledUnits = units.filter(
+    (unit) => unit.teams.some((team) => team.quietDays >= 7),
   ).length;
 
   const statusLine = automation.activeCount > 0
@@ -369,143 +588,152 @@ export function AgentOverviewView({
     : text("自动认领未开启", "Auto-claim is off");
 
   return (
-    <div className="agent-overview cockpit">
-      <div className="cockpit-canvas">
-        {/* top status bar */}
-        <header className="cockpit-topbar">
-          <div className="cockpit-topbar-brand">
-            <span className="cockpit-logo" aria-hidden="true">◆</span>
-            <span className="cockpit-brand-name">Taskboard</span>
-            <span className="cockpit-brand-sub">{text("公司运营驾驶舱", "Operations Cockpit")}</span>
+    <div className="agent-overview orgchart">
+      <div className="org-canvas">
+        {/* top bar */}
+        <header className="org-topbar">
+          <div className="org-brand">
+            <span className="org-logo" aria-hidden="true">◆</span>
+            <span className="org-brand-name">Taskboard</span>
+            <span className="org-brand-sub">{text("公司组织架构", "Company Org Chart")}</span>
           </div>
-          <div className="cockpit-topbar-stats">
-            <span className="cockpit-stat">
-              {health.length} {text("个项目", "projects")}
-            </span>
-            <span className="cockpit-stat">
-              {tasks.length} {text("个议题", "issues")}
-            </span>
-            <span className="cockpit-stat">
-              {openCount} {text("个未结束", "open")}
-            </span>
-            <span className="cockpit-stat">
-              {activeProjects.length} {text("个活跃", "active")}
-            </span>
+          <div className="org-topbar-stats">
+            <span className="org-stat">{units.length} {text("个部门", "units")}</span>
+            <span className="org-stat">{scopedTasks.length} {text("个议题", "issues")}</span>
+            <span className="org-stat">{openCount} {text("个未结束", "open")}</span>
+            <span className="org-stat">{activeUnits} {text("个部门在干活", "active")}</span>
           </div>
-          <div className="cockpit-topbar-right">
-            <span className="cockpit-time">{timeLabel(nowDate)}</span>
+          <div className="org-topbar-right">
+            <span className="org-time">{timeLabel(nowDate)}</span>
             <button
               type="button"
-              className={`cockpit-hide-toggle${hideNames ? " is-on" : ""}`}
+              className={`org-toggle${settingsOpen ? " is-on" : ""}`}
+              onClick={() => setSettingsOpen((previous) => !previous)}
+              title={text("组织架构设置", "Org settings")}
+            >
+              {text("组织设置", "Org setup")}
+            </button>
+            <button
+              type="button"
+              className={`org-toggle${hideNames ? " is-on" : ""}`}
               onClick={toggleHideNames}
               title={hideNames ? text("显示项目名", "Show names") : text("隐藏项目名", "Hide names")}
             >
-              {hideNames ? text("隐藏店名", "Hide names") : text("显示店名", "Show names")}
+              {hideNames ? text("隐藏项目名", "Hide names") : text("显示项目名", "Show names")}
             </button>
           </div>
         </header>
 
-        {/* you */}
-        <section className="cockpit-user">
-          <div className="cockpit-user-card">
-            <ActorAvatar actor={currentUser} className="cockpit-user-avatar" />
-            <div className="cockpit-user-info">
+        {/* CEO layer */}
+        <section className="org-lead">
+          <div className="org-lead-card">
+            <ActorAvatar actor={currentUser} className="org-lead-avatar" />
+            <div className="org-lead-info">
               <strong>{currentUser.name}</strong>
-              <span>{text("创始人 · 拍板定方向", "Founder · Sets direction")}</span>
+              <span>{text("创始人 · CEO · 拍板定方向", "Founder · CEO · Sets direction")}</span>
             </div>
-            <div className="cockpit-user-badge">
+            <div className="org-lead-badge">
               {waitingOnYou.length > 0 ? (
-                <span className="cockpit-badge-hot">
+                <span className="org-badge-hot">
                   {text(`等你 ${waitingOnYou.length} 件`, `${waitingOnYou.length} waiting`)}
                 </span>
               ) : (
-                <span className="cockpit-badge-calm">
-                  {text("没有等你的事", "Nothing waiting")}
-                </span>
+                <span className="org-badge-calm">{text("没有等你的事", "Nothing waiting")}</span>
               )}
             </div>
           </div>
-        </section>
-
-        {/* CEO Agent */}
-        <section className="cockpit-ceo">
-          {/* arrow from user */}
-          <div className="cockpit-arrow-down" aria-hidden="true">
-            <svg width="20" height="28" viewBox="0 0 20 28">
-              <line x1="10" y1="0" x2="10" y2="22" stroke="var(--ck-line-bright)" strokeWidth="1" />
-              <polyline points="4,18 10,24 16,18" fill="none" stroke="var(--ck-line-bright)" strokeWidth="1" />
-            </svg>
-          </div>
-          <div className="cockpit-ceo-card">
-            <div className="cockpit-ceo-icon" aria-hidden="true">◇</div>
-            <div className="cockpit-ceo-info">
+          <div className="org-lead-agent">
+            <span className="org-lead-agent-icon" aria-hidden="true">◇</span>
+            <div className="org-lead-agent-info">
               <strong>CEO Agent</strong>
               <span>
                 {automation.activeCount > 0
                   ? text(
-                      `每 ${automation.intervalMinutes ?? 0} 分钟巡视 · 在做 ${agentQueue.length} 件`,
-                      `Every ${automation.intervalMinutes ?? 0} min · ${agentQueue.length} running`,
+                      `每 ${automation.intervalMinutes ?? 0} 分钟巡视 · 在做 ${runningCount} 件`,
+                      `Every ${automation.intervalMinutes ?? 0} min · ${runningCount} running`,
                     )
                   : text("未开启自动巡视", "Auto-patrol is off")}
               </span>
             </div>
-            <div className={`cockpit-ceo-status${automation.activeCount > 0 ? " is-on" : ""}`}>
+            <div className={`org-lead-agent-status${automation.activeCount > 0 ? " is-on" : ""}`}>
               <i aria-hidden="true" />
               <span>{statusLine}</span>
             </div>
           </div>
-          {/* connector lines */}
-          <div className="cockpit-connectors" aria-hidden="true">
-            <div className="cockpit-connector-hub" />
-            <div className="cockpit-connector-spokes">
-              {health.map((project) => (
-                <div className="cockpit-spoke" key={project.id} />
-              ))}
-            </div>
-          </div>
         </section>
 
-        {/* project grid */}
-        <section className="cockpit-grid">
-          {health.map((project, index) => (
-            <ProjectCard
-              key={project.id}
-              health={project}
-              tasks={tasks}
-              language={language}
-              text={text}
-              hideNames={hideNames}
-              displayIndex={index}
-              presentations={presentations}
-              onOpenTask={onOpenTask}
-              onSelectProject={onSelectProject}
-              onProjectMetricUpdated={onProjectMetricUpdated}
-              project={projects.find((candidate) => candidate.id === project.id)!}
-            />
+        {/* spine */}
+        <div className="org-spine" aria-hidden="true">
+          <span className="org-spine-node" />
+        </div>
+
+        {/* departments */}
+        <section className="org-tree">
+          {units.map((unit) => (
+            <article
+              className={`org-unit${unit.isUnclassified ? " is-unclassified" : ""}`}
+              key={unit.id}
+            >
+              <div className="org-unit-rail" aria-hidden="true">
+                <span className="org-unit-node" />
+              </div>
+              <div className="org-unit-card">
+                <header className="org-unit-head">
+                  <div className="org-unit-title">
+                    <strong>{language === "zh" ? unit.name : unit.nameEn}</strong>
+                    <span>{unit.counts.total} {text("项", "items")}</span>
+                  </div>
+                  <Pipeline counts={unit.counts} text={text} />
+                </header>
+                <div className="org-teams">
+                  {unit.teams.map((team) => (
+                    <TeamRow
+                      key={`${unit.id}-${team.projectId}`}
+                      team={team}
+                      project={projects.find((candidate) => candidate.id === team.projectId)}
+                      language={language}
+                      text={text}
+                      hideNames={hideNames}
+                      displayIndex={projectOrder.get(team.projectId) ?? 0}
+                      presentations={presentations}
+                      onOpenTask={onOpenTask}
+                      onSelectProject={onSelectProject}
+                      onProjectMetricUpdated={onProjectMetricUpdated}
+                    />
+                  ))}
+                </div>
+              </div>
+            </article>
           ))}
         </section>
 
+        {settingsOpen && (
+          <DepartmentSettingsPanel
+            labels={labelsInUse}
+            departments={departments}
+            settings={settings}
+            language={language}
+            text={text}
+            onChange={persistSettings}
+            onClose={() => setSettingsOpen(false)}
+          />
+        )}
+
         {/* footer summary */}
-        <footer className="cockpit-footer">
-          <span>
-            {doneLast7} {text("件 7 天交付", "shipped in 7d")}
-          </span>
+        <footer className="org-foot">
+          <span>{doneLast7} {text("件 7 天交付", "shipped in 7d")}</span>
           <i aria-hidden="true">·</i>
           <span>
             {waitingOnYou.length} {text("件等你", "waiting on you")}
             {unreadCount > 0 && (
-              <em className="cockpit-unread">
-                ({unreadCount} {text("未读", "unread")})
-              </em>
+              <em className="org-unread">({unreadCount} {text("未读", "unread")})</em>
             )}
           </span>
           <i aria-hidden="true">·</i>
-          <span>
-            {stalledProjects.length} {text("个荒废", "starving")}
-          </span>
+          <span>{stalledUnits} {text("个部门停滞", "stalled")}</span>
           <i aria-hidden="true">·</i>
           <span>
-            {emptyProjects.length} {text("个未开工", "not started")}
+            {unclassified?.counts.total ?? 0} {text("件未归类", "unclassified")}
           </span>
         </footer>
       </div>
