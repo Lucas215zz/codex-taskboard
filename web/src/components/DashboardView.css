@@ -1,10 +1,10 @@
 .dashboard-view.dashboard-view {
-  --dashboard-summary-text: #502bf5;
-  --dashboard-other-label-color: #e2e2e2;
-  --dashboard-contribution-1: #f9e1d7;
-  --dashboard-contribution-2: #f6c5b1;
-  --dashboard-contribution-3: #f8aa89;
-  --dashboard-contribution-4: #e98155;
+  --dashboard-summary-text: var(--accent);
+  --dashboard-other-label-color: var(--text-quaternary);
+  --dashboard-contribution-1: color-mix(in srgb, var(--accent) 22%, var(--surface-muted));
+  --dashboard-contribution-2: color-mix(in srgb, var(--accent) 42%, var(--surface-muted));
+  --dashboard-contribution-3: color-mix(in srgb, var(--accent) 68%, var(--surface-muted));
+  --dashboard-contribution-4: var(--accent);
   padding: 16px 8px 64px;
   background: transparent;
   scrollbar-width: none;
@@ -12,11 +12,11 @@
 
 :root[data-theme="dark"] .dashboard-view.dashboard-view {
   --dashboard-summary-text: color-mix(in srgb, var(--accent) 55%, var(--text-primary));
-  --dashboard-other-label-color: rgba(255, 255, 255, .2);
-  --dashboard-contribution-1: color-mix(in srgb, #e98155 22%, var(--surface-muted));
-  --dashboard-contribution-2: color-mix(in srgb, #e98155 42%, var(--surface-muted));
-  --dashboard-contribution-3: color-mix(in srgb, #e98155 68%, var(--surface-muted));
-  --dashboard-contribution-4: #e98155;
+  --dashboard-other-label-color: var(--text-quaternary);
+  --dashboard-contribution-1: color-mix(in srgb, var(--accent) 22%, var(--surface-muted));
+  --dashboard-contribution-2: color-mix(in srgb, var(--accent) 42%, var(--surface-muted));
+  --dashboard-contribution-3: color-mix(in srgb, var(--accent) 68%, var(--surface-muted));
+  --dashboard-contribution-4: var(--accent);
 }
 
 .dashboard-view.dashboard-view::-webkit-scrollbar,
@@ -73,7 +73,7 @@
 
 .dashboard-view .dashboard-hero-value strong {
   flex: 0 0 auto;
-  background: linear-gradient(93.9348deg, #5e6ad2 1.6282%, #d767c9 48.065%, #ff7236 77.088%, #f0bf00 98.372%);
+  background: linear-gradient(93.9348deg, var(--status-done) 1.6282%, var(--accent) 48.065%, var(--accent-hover) 77.088%, var(--success) 98.372%);
   background-clip: text;
   color: transparent;
   font-size: var(--fs-metric-xl);
@@ -133,7 +133,7 @@
   padding: 18px 20px;
   border: 0;
   border-radius: 24px 24px 0 24px;
-  background: linear-gradient(90deg, rgba(90, 163, 246, .1), rgba(98, 90, 246, .1));
+  background: linear-gradient(90deg, var(--accent-soft), color-mix(in srgb, var(--accent) 10%, transparent));
 }
 
 .dashboard-view .dashboard-summary-bubble p {
@@ -337,8 +337,8 @@
 }
 
 .dashboard-view .dashboard-progress-legend .tone-scope { color: var(--text-quaternary); }
-.dashboard-view .dashboard-progress-legend .tone-started { color: #6a79ff; }
-.dashboard-view .dashboard-progress-legend .tone-completed { color: #22b889; }
+.dashboard-view .dashboard-progress-legend .tone-started { color: var(--accent); }
+.dashboard-view .dashboard-progress-legend .tone-completed { color: var(--success); }
 
 .dashboard-view .dashboard-progress-body {
   display: flex;
@@ -380,19 +380,19 @@
 }
 
 .dashboard-view .dashboard-progress-line.tone-scope { stroke: var(--text-quaternary); }
-.dashboard-view .dashboard-progress-line.tone-started { stroke: #6a79ff; }
-.dashboard-view .dashboard-progress-line.tone-completed { stroke: #22b889; }
+.dashboard-view .dashboard-progress-line.tone-started { stroke: var(--accent); }
+.dashboard-view .dashboard-progress-line.tone-completed { stroke: var(--success); }
 
 .dashboard-view .dashboard-progress-projection {
   fill: none;
-  stroke: #22b889;
+  stroke: var(--success);
   stroke-dasharray: 2 2.6;
   stroke-linecap: round;
   stroke-width: 1.1;
 }
 
 .dashboard-view .dashboard-progress-delivery-bar {
-  fill: #22b889;
+  fill: var(--success);
   opacity: .62;
 }
 
@@ -407,8 +407,8 @@
 }
 
 .dashboard-view .dashboard-progress-point.tone-scope { fill: var(--text-quaternary); }
-.dashboard-view .dashboard-progress-point.tone-started { fill: #6a79ff; }
-.dashboard-view .dashboard-progress-point.tone-completed { fill: #22b889; }
+.dashboard-view .dashboard-progress-point.tone-started { fill: var(--accent); }
+.dashboard-view .dashboard-progress-point.tone-completed { fill: var(--success); }
 
 .dashboard-view .dashboard-progress-hover-line {
   pointer-events: none;
@@ -788,15 +788,15 @@
 }
 
 .dashboard-view .dashboard-role-stack .tone-0,
-.dashboard-view .dashboard-role-share.tone-0 { --role-color: #5e6ad2; }
+.dashboard-view .dashboard-role-share.tone-0 { --role-color: var(--accent); }
 .dashboard-view .dashboard-role-stack .tone-1,
-.dashboard-view .dashboard-role-share.tone-1 { --role-color: #d25e5e; }
+.dashboard-view .dashboard-role-share.tone-1 { --role-color: var(--danger); }
 .dashboard-view .dashboard-role-stack .tone-2,
-.dashboard-view .dashboard-role-share.tone-2 { --role-color: #5eccd2; }
+.dashboard-view .dashboard-role-share.tone-2 { --role-color: var(--success); }
 .dashboard-view .dashboard-role-stack .tone-3,
-.dashboard-view .dashboard-role-share.tone-3 { --role-color: #f9ac28; }
+.dashboard-view .dashboard-role-share.tone-3 { --role-color: var(--warning); }
 .dashboard-view .dashboard-role-stack .tone-4,
-.dashboard-view .dashboard-role-share.tone-4 { --role-color: #8b8d92; }
+.dashboard-view .dashboard-role-share.tone-4 { --role-color: var(--text-quaternary); }
 
 .dashboard-view .dashboard-role-stack i {
   background: var(--role-color);
