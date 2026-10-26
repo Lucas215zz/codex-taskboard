@@ -33,6 +33,8 @@ export interface ProjectAutomationSummary {
 interface AgentOverviewViewProps {
   isAllProjects: boolean;
   selectedProjectId: string | null;
+  /** Renders the project tree only, for use inside a composed overview page. */
+  embedded?: boolean;
   currentUser: ActorIdentity;
   tasks: Task[];
   projects: Project[];
@@ -532,6 +534,7 @@ function DepartmentSettingsPanel({
 export function AgentOverviewView({
   isAllProjects,
   selectedProjectId,
+  embedded = false,
   currentUser,
   tasks,
   projects,
@@ -724,14 +727,18 @@ export function AgentOverviewView({
   }, [onSetProjectAutomation]);
 
   return (
-    <div className="agent-overview dashboard">
+    <div className={`agent-overview dashboard${embedded ? " is-embedded" : ""}`}>
       <div className="dashboard-canvas">
         {/* top bar */}
         <header className="dashboard-topbar">
           <div className="dashboard-heading">
             <span className="org-logo" aria-hidden="true">◆</span>
             <span className="org-brand-name">{text("我的工作台", "My workspace")}</span>
-            <span className="org-brand-sub">{text("一人公司运营总览", "Solo operator dashboard")}</span>
+            <span className="org-brand-sub">
+              {embedded
+                ? text("经营全貌", "Operating view")
+                : text("一人公司运营总览", "Solo operator dashboard")}
+            </span>
           </div>
           <div className="dashboard-kpis">
             <span className="org-stat">{departmentsSummary.length} {text("个部门", "units")}</span>
