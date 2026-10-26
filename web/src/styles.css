@@ -559,21 +559,39 @@ kbd {
   flex: 0 0 auto;
 }
 
-.header-token-link {
+.header-actions .header-project-button.header-token-link {
   flex: 0 0 auto;
   max-width: none;
   gap: 6px;
-  color: var(--text-secondary);
+  padding: 0 12px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+  color: #ffffff;
   font-size: var(--fs-body-sm);
-  font-weight: 600;
+  font-weight: 700;
   text-decoration: none;
   white-space: nowrap;
+  box-shadow: 0 1px 3px rgba(99, 102, 241, 0.35);
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
 }
 
-.header-token-link svg {
+.header-actions .header-project-button.header-token-link svg {
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
+}
+
+.header-actions .header-project-button.header-token-link:hover,
+.header-actions .header-project-button.header-token-link[aria-expanded="true"] {
+  filter: brightness(1.08);
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.45);
+  border-color: transparent;
+  color: #ffffff;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
 }
 
 .icon-button {
@@ -10182,48 +10200,6 @@ kbd {
   box-shadow: 0 1px 2px rgba(24, 32, 39, 0.08);
   color: var(--text-primary);
   font-weight: 650;
-}
-
-/* ---------- overview sub-tabs ---------- */
-
-.overview-shell {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
-
-.overview-tabs {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 4px;
-  padding: 10px 8px 0;
-}
-
-.overview-tab {
-  height: 24px;
-  padding: 3px 12px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-tertiary);
-  font: inherit;
-  font-size: var(--fs-caption);
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.overview-tab:hover {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-
-.overview-tab.active,
-.overview-tab.active:hover {
-  background: var(--surface-muted);
-  color: var(--text-primary);
 }
 
 .toolbar-tools {
