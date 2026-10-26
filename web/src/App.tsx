@@ -46,7 +46,6 @@ import {
   setApiText,
   setCurrentUserActor,
   syncJiraConnection,
-  updateTokenUsageSettings,
   uploadAttachment,
   updateTask as updateTaskRequest,
 } from "./api";
@@ -766,9 +765,7 @@ export function App() {
   const [manageTaskboardSkillPath, setManageTaskboardSkillPath] = useState("");
   const [taskboardMetadata, setTaskboardMetadata] = useState<TaskboardMetadata | null>(null);
   const [localAiChatAvailable, setLocalAiChatAvailable] = useState(false);
-  const [tokenUsageEnabled, setTokenUsageEnabled] = useState(true);
   const [tokenUsageKnown, setTokenUsageKnown] = useState(false);
-  const [tokenUsageSaving, setTokenUsageSaving] = useState(false);
   const [aiImportReadyProjectId, setAiImportReadyProjectId] = useState<string | null>(null);
   const [aiThreads, setAiThreads] = useState<AiChatThread[]>([]);
   const [aiOpenThreadRequest, setAiOpenThreadRequest] = useState<AiChatOpenThreadRequest | null>(null);
@@ -929,9 +926,8 @@ export function App() {
     if (!taskboardMetadata || taskboardMetadata.mode === "cloud") return;
     let cancelled = false;
     void getTokenUsageStatus()
-      .then((status) => {
+      .then(() => {
         if (cancelled) return;
-        setTokenUsageEnabled(status.enabled);
         setTokenUsageKnown(true);
       })
       .catch(() => {
@@ -942,30 +938,11 @@ export function App() {
     };
   }, [taskboardMetadata]);
 
-  const toggleTokenUsage = useCallback(async () => {
-    if (tokenUsageSaving) return;
-    const enabled = !tokenUsageEnabled;
-    setTokenUsageSaving(true);
-    try {
-      const status = await updateTokenUsageSettings({ enabled });
-      setTokenUsageEnabled(status.enabled);
-      setTokenUsageKnown(true);
-      setAnnouncement(text(
-        status.enabled ? "Token 排行榜已开启" : "Token 排行榜已关闭",
-        status.enabled ? "Token ranking enabled" : "Token ranking disabled",
-      ));
-    } catch (error) {
-      setActionError(errorMessage(error));
-    } finally {
-      setTokenUsageSaving(false);
-    }
-  }, [errorMessage, setActionError, setAnnouncement, text, tokenUsageEnabled, tokenUsageSaving]);
-
   const tokenRankingUrl = useMemo(() => {
     const url = new URL("https://ttokens.lusixian.com");
     url.searchParams.set(
       "callback",
-      new URL("/api/local/token-usage/connect", window.location.origin).toString(),
+      resolveTaskboardUrl("/api/local/token-usage/connect"),
     );
     url.searchParams.set("return", window.location.href);
     return url.toString();
@@ -3776,36 +3753,17 @@ export function App() {
 
           <div className="header-actions">
             {tokenUsageKnown && (
-              <>
-                <button
-                  className={`header-token-toggle${tokenUsageEnabled ? " is-enabled" : ""}`}
-                  type="button"
-                  disabled={tokenUsageSaving}
-                  aria-pressed={tokenUsageEnabled}
-                  aria-label={text(
-                    tokenUsageEnabled ? "关闭 Token 排行榜" : "开启 Token 排行榜",
-                    tokenUsageEnabled ? "Disable token ranking" : "Enable token ranking",
-                  )}
-                  title={text(
-                    tokenUsageEnabled ? "Token 排行榜已开启" : "Token 排行榜已关闭",
-                    tokenUsageEnabled ? "Token ranking is enabled" : "Token ranking is disabled",
-                  )}
-                  onClick={() => void toggleTokenUsage()}
-                >
-                  <span className="header-token-status" aria-hidden="true" />
-                  <span>Token</span>
-                </button>
-                <a
-                  className="icon-button header-token-link"
-                  href={tokenRankingUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label={text("打开 Token 排行榜", "Open token ranking")}
-                  title={text("打开 Token 排行榜", "Open token ranking")}
-                >
-                  <LinearIcon name="openExternal" />
-                </a>
-              </>
+              <a
+                className="header-project-button header-token-link"
+                href={tokenRankingUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={text("看看大家用了多少 Token", "See others' token usage")}
+                title={text("看看大家用了多少 Token", "See others' token usage")}
+              >
+                <span>{text("看看大家用了多少 Token", "See others' token usage")}</span>
+                <LinearIcon name="openExternal" />
+              </a>
             )}
             {selectedProject && (
               <ProjectAutomationMenu
