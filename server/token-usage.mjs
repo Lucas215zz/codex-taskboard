@@ -393,11 +393,27 @@ export class TokenUsageCollector {
     return this.state;
   }
 
-  async #writeJson(filePath, value) {
-    await mkdir(path.dirname(filePath), { recursive: true });
-    const temporaryPath = `${filePath}.${process.pid}.tmp`;
-    await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-    await rename(temporaryPath, filePath);
+  #writeQueues = new Map();
+
+  #writeJson(filePath, value) {
+    const run = async () => {
+      await mkdir(path.dirname(filePath), { recursive: true });
+      const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+      await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await rename(temporaryPath, filePath);
+          return;
+        } catch (error) {
+          if ((error.code !== "EPERM" && error.code !== "EBUSY") || attempt >= 5) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+        }
+      }
+    };
+    const previous = this.#writeQueues.get(filePath) ?? Promise.resolve();
+    const next = previous.then(run, run);
+    this.#writeQueues.set(filePath, next.catch(() => {}));
+    return next;
   }
 
   async #queuedEventCount(state) {
