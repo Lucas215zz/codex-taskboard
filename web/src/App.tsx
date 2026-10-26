@@ -3978,7 +3978,6 @@ export function App() {
             key={selectedProjectId}
             projectId={selectedProjectId}
             projectCreatedAt={selectedProject?.createdAt ?? null}
-            projects={projects}
             isAllProjects={isAllProjects}
             tasks={tasks}
             presentations={taskPresentations}

@@ -12,7 +12,7 @@ import type {
   TaskCardPresentation,
   TaskConversationItem,
 } from "../taskConversations";
-import type { ActorIdentity, Project, ProjectSummary, Task } from "../types";
+import type { ActorIdentity, ProjectSummary, Task } from "../types";
 import { ActorAvatar } from "./ActorAvatar";
 import { PriorityIcon } from "./SemanticIcons";
 import { TaskConversationMenu } from "./TaskConversationMenu";
@@ -20,7 +20,6 @@ import { TaskConversationMenu } from "./TaskConversationMenu";
 interface DashboardViewProps {
   projectId: string;
   projectCreatedAt: string | null;
-  projects: Project[];
   isAllProjects: boolean;
   tasks: Task[];
   presentations: Record<string, TaskCardPresentation>;
@@ -512,70 +511,9 @@ function dayGap(fromIso: string, nowValue: number) {
   return Math.max(0, Math.floor((nowValue - new Date(fromIso).getTime()) / DAY_MS));
 }
 
-interface ProjectStage {
-  projectId: string;
-  name: string;
-  total: number;
-  todo: number;
-  active: number;
-  review: number;
-  done: number;
-  stalled: number;
-  staleDays: number;
-  lastActivity: string;
-}
-
-function buildProjectStages(
-  tasks: Task[],
-  projects: Project[],
-  nowValue: number,
-): ProjectStage[] {
-  const scoped = tasks.filter((task) => task.status !== "canceled");
-  const byProject = new Map<string, Task[]>();
-  for (const task of scoped) {
-    const list = byProject.get(task.projectId);
-    if (list) list.push(task);
-    else byProject.set(task.projectId, [task]);
-  }
-  const nameById = new Map(projects.map((project) => [project.id, project.name]));
-  return [...byProject.entries()]
-    .map(([projectId, list]) => {
-      const open = list.filter((task) => task.status !== "done");
-      const stale = open.filter((task) => dayGap(task.activityUpdatedAt, nowValue) >= STALL_DAYS);
-      const lastActivity = list
-        .map((task) => task.activityUpdatedAt)
-        .sort()
-        .at(-1) ?? "";
-      const openLastActivity = open
-        .map((task) => task.activityUpdatedAt)
-        .sort()
-        .at(-1) ?? "";
-      return {
-        projectId,
-        name: nameById.get(projectId) ?? projectId,
-        total: list.length,
-        todo: list.filter((task) => task.status === "todo" || task.status === "backlog").length,
-        active: list.filter((task) => task.status === "in_progress").length,
-        review: list.filter((task) => task.status === "in_review").length,
-        done: list.filter((task) => task.status === "done").length,
-        stalled: stale.length,
-        // Idle age must describe open work only; a fully finished project is
-        // not "idle", so it reports 0 and the row renders as wrapped up.
-        staleDays: openLastActivity ? dayGap(openLastActivity, nowValue) : 0,
-        lastActivity,
-      };
-    })
-    .sort((left, right) => (
-      right.stalled - left.stalled
-      || right.staleDays - left.staleDays
-      || right.total - left.total
-    ));
-}
-
 export function DashboardView({
   projectId,
   projectCreatedAt,
-  projects,
   isAllProjects,
   tasks,
   presentations,
@@ -631,7 +569,7 @@ export function DashboardView({
   const {
     scopedTasks, activeTasks, completedTasks, projectCompletion,
     reviewTasks, blockedTasks, stalledTasks, staleQueue, weekDone, prevWeekDone,
-    projectStages, labelCounts, totalLabelAssignments, labeledTaskCount,
+    labelCounts, totalLabelAssignments, labeledTaskCount,
     unlabeledTaskCount, scopedTaskCount, visibleLabelCounts,
   } = useMemo(() => {
     const scopedTasks = tasks.filter((task) => task.status !== "canceled");
@@ -659,8 +597,6 @@ export function DashboardView({
       const age = nowValue - new Date(task.activityUpdatedAt).getTime();
       return age >= 7 * DAY_MS && age < 14 * DAY_MS;
     }).length;
-
-    const projectStages = buildProjectStages(tasks, projects, nowValue);
 
     const labelCountMap = new Map<string, number>();
     for (const task of scopedTasks) {
@@ -703,10 +639,10 @@ export function DashboardView({
     return {
       scopedTasks, activeTasks, completedTasks, projectCompletion,
       reviewTasks, blockedTasks, stalledTasks, staleQueue, weekDone, prevWeekDone,
-      projectStages, labelCounts, totalLabelAssignments, labeledTaskCount,
+      labelCounts, totalLabelAssignments, labeledTaskCount,
       unlabeledTaskCount, scopedTaskCount, visibleLabelCounts,
     };
-  }, [language, projects, tasks, text, nowValue]);
+  }, [language, tasks, text, nowValue]);
 
   const progressData = useMemo(() => {
     const aggregateCreatedAt = isAllProjects
@@ -784,53 +720,6 @@ export function DashboardView({
 
         <div className="dash-body">
           <div className="dash-main">
-            <section className="dash-card">
-              <header className="dash-card-head">
-                <h2>{text("项目漏斗", "Project funnel")}</h2>
-                <span className="dash-card-note">
-                  {text(`按停滞排序 · 共 ${scopedTaskCount} 个议题`, `${scopedTaskCount} issues · stalled first`)}
-                </span>
-              </header>
-              <ol className="dash-funnel">
-                {projectStages.map((stage) => {
-                  const pct = (value: number) => `${(value / Math.max(1, stage.total)) * 100}%`;
-                  return (
-                    <li key={stage.projectId} className={stage.stalled ? "has-stall" : undefined}>
-                      <div className="dash-funnel-head">
-                        <strong>{stage.name}</strong>
-                        <span className="dash-funnel-total">{stage.total}</span>
-                      </div>
-                      <div className="dash-funnel-bar" aria-hidden="true">
-                        <i className="seg-todo" style={{ width: pct(stage.todo) }} />
-                        <i className="seg-active" style={{ width: pct(stage.active) }} />
-                        <i className="seg-review" style={{ width: pct(stage.review) }} />
-                        <i className="seg-done" style={{ width: pct(stage.done) }} />
-                      </div>
-                      <div className="dash-funnel-foot">
-                        <span className="dash-funnel-counts">
-                          {text("待办", "Todo")} {stage.todo}
-                          {" · "}
-                          {text("进行", "Doing")} {stage.active}
-                          {" · "}
-                          {text("待确认", "Review")} {stage.review}
-                          {" · "}
-                          {text("完成", "Done")} {stage.done}
-                        </span>
-                        <span className={`dash-funnel-age${stage.staleDays >= STALL_DAYS ? " is-stale" : ""}`}>
-                          {stage.total === stage.done
-                            ? text("已收尾", "wrapped up")
-                            : stage.staleDays === 0
-                              ? text("今天有动", "active today")
-                              : text(`${stage.staleDays} 天未动`, `${stage.staleDays}d idle`)}
-                          {stage.stalled ? ` · ${stage.stalled} 停滞` : ""}
-                        </span>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            </section>
-
             <section className="dash-card">
               <header className="dash-card-head">
                 <h2>{text("累计进度", "Cumulative progress")}</h2>
