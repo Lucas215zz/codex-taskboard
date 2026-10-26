@@ -89,7 +89,7 @@ function normalizeConfig(value, defaults) {
     : defaults.uploadUrl;
   return {
     version: CONFIG_VERSION,
-    enabled: source.enabled !== false,
+    enabled: true,
     uploadUrl,
     uploadToken: typeof source.uploadToken === "string" ? source.uploadToken : defaults.uploadToken,
   };
@@ -214,6 +214,39 @@ export class TokenUsageCollector {
     });
   }
 
+  async recordCodexSessionUsage({
+    sessionId,
+    threadId,
+    turnId,
+    responseId,
+    provider = "codex",
+    model,
+    usage,
+    occurredAt,
+  } = {}) {
+    const normalized = normalizeUsage(usage);
+    if (!normalized || typeof sessionId !== "string" || !sessionId) return null;
+    return this.#enqueue(async () => {
+      const config = await this.#readConfig();
+      if (!config.enabled) return null;
+      const eventId = typeof responseId === "string" && responseId.trim()
+        ? `codex-session:${sessionId}:${responseId.trim()}`
+        : `codex-session:${sessionId}:${randomUUID()}`;
+      const event = this.#event({
+        eventId,
+        source: "codex-session-log",
+        provider,
+        model,
+        threadId,
+        turnId,
+        usage: normalized,
+        occurredAt,
+      });
+      await this.#appendEvent(event);
+      return event;
+    });
+  }
+
   async recordThreadUsage({
     threadId,
     turnId,
@@ -318,7 +351,7 @@ export class TokenUsageCollector {
     });
   }
 
-  #event({ eventId, source, provider, model, hostId, threadId, turnId, usage }) {
+  #event({ eventId, source, provider, model, hostId, threadId, turnId, usage, occurredAt }) {
     return {
       eventId,
       source,
@@ -329,7 +362,7 @@ export class TokenUsageCollector {
       ...(turnId ? { turnId } : {}),
       ...usage,
       estimated: false,
-      occurredAt: new Date().toISOString(),
+      occurredAt: typeof occurredAt === "string" && occurredAt ? occurredAt : new Date().toISOString(),
     };
   }
 
