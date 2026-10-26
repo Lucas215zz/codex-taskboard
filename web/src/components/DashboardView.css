@@ -208,13 +208,13 @@
    decisions. A hairline separates them so the two halves read as one page
    rather than two stacked panels. */
 .dashboard-view.is-composed .dash-body {
-  grid-template-columns: minmax(0, 1fr) minmax(288px, 340px);
+  grid-template-columns: minmax(0, 1fr) minmax(264px, 312px);
   align-items: start;
 }
 
 .dashboard-view.is-composed .dash-main {
-  gap: 18px;
-  padding-right: 20px;
+  gap: 14px;
+  padding-right: 22px;
   border-right: var(--border-hairline) solid var(--border);
 }
 
@@ -223,11 +223,14 @@
 }
 
 .dashboard-view.is-composed .dash-rail {
-  gap: 6px;
+  gap: 0;
   padding-left: 4px;
   align-content: start;
   position: sticky;
   top: 0;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 
 /* Keep the rail visually anchored to the top of the page; it holds today's
@@ -241,7 +244,7 @@
 }
 
 .dashboard-view.is-composed .dash-rail .dash-card {
-  padding: 12px 0 14px;
+  padding: 13px 2px 15px;
   background: transparent;
   border: 0;
   border-radius: 0;

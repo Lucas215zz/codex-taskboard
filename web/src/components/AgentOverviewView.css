@@ -954,11 +954,35 @@
 }
 
 .agent-overview.dashboard.is-embedded .dashboard-topbar {
-  padding-top: 2px;
+  padding: 0 0 14px;
 }
 
 .agent-overview.dashboard.is-embedded .dashboard-footer {
   padding-bottom: 0;
+}
+
+/* The workspace header duplicates today's pulse row; a compact strip keeps
+   identity and controls without a second banner. */
+.agent-overview.dashboard.is-embedded .dashboard-heading .org-logo {
+  display: none;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-heading .org-brand-name {
+  font-size: 15px;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-kpis .org-stat {
+  padding-left: 9px;
+  border-left: var(--border-hairline) solid var(--border);
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-kpis .org-stat:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-time {
+  display: none;
 }
 
 .dashboard-canvas {
@@ -1059,6 +1083,10 @@
 
 .dashboard-focus {
   margin-top: 26px;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-focus {
+  margin-top: 16px;
 }
 
 .dashboard-section-heading {
