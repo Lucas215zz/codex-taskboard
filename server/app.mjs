@@ -46,6 +46,7 @@ import { createJiraConfigStore } from "./jira-config.mjs";
 import { createJiraIntegration } from "./jira-integration.mjs";
 import { ProjectSummaryService } from "./project-summary.mjs";
 import { TokenUsageCollector } from "./token-usage.mjs";
+import { CodexSessionUsageCollector } from "./token-usage-sessions.mjs";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const execFileAsync = promisify(execFile);
@@ -68,6 +69,7 @@ const INLINE_ATTACHMENT_TYPES = new Set([
 ]);
 const PROJECT_BOARD_DISPLAY_SETTINGS_KEY_PREFIX = "taskboard.project-board-display-settings.v3.";
 const TRUSTED_EMBED_ORIGINS = new Set(["app://-"]);
+const RANKING_CONNECT_ORIGINS = new Set(["https://ttokens.lusixian.com"]);
 const TRUSTED_ORIGINS_ENV = "CODEX_TASKBOARD_TRUSTED_ORIGINS";
 const CODEX_AGENT_ACTOR = {
   type: "agent",
@@ -236,7 +238,12 @@ function parseRequestHost(value) {
   return { hostname: url.hostname, httpsOrigin: url.origin };
 }
 
-function assertTrustedNetworkRequest(request, allowOpaqueOrigin = false, trustedOrigins = new Set()) {
+function assertTrustedNetworkRequest(
+  request,
+  allowOpaqueOrigin = false,
+  trustedOrigins = new Set(),
+  allowedCrossSiteOrigins = new Set(),
+) {
   const host = parseRequestHost(request.headers.host);
   const trustedNetworkHost = isTrustedNetworkHost(host.hostname);
   const configuredTrustedHost = !trustedNetworkHost && trustedOrigins.has(host.httpsOrigin);
@@ -246,7 +253,13 @@ function assertTrustedNetworkRequest(request, allowOpaqueOrigin = false, trusted
 
   const origin = request.headers.origin;
   const configuredTrustedOrigin = trustedOrigins.has(origin);
-  if (origin && !configuredTrustedOrigin && !TRUSTED_EMBED_ORIGINS.has(origin)) {
+  const allowedCrossSiteOrigin = allowedCrossSiteOrigins.has(origin);
+  if (
+    origin
+    && !configuredTrustedOrigin
+    && !TRUSTED_EMBED_ORIGINS.has(origin)
+    && !allowedCrossSiteOrigin
+  ) {
     if (!(allowOpaqueOrigin && origin === "null")) {
       let originHost;
       try {
@@ -1462,6 +1475,18 @@ export function createTaskboardServer(options = {}) {
       : {}),
   });
   tokenUsageCollector.start();
+  const codexSessionUsageCollector = options.codexSessionUsageCollector
+    ?? new CodexSessionUsageCollector({
+      codexHome: path.dirname(resolved.codexStatePath),
+      dataDirectory: resolved.dataDirectory,
+      ...(resolved.tokenUsageUploadUrl !== undefined
+        ? { uploadUrl: resolved.tokenUsageUploadUrl }
+        : {}),
+      ...(resolved.tokenUsageUploadToken !== undefined
+        ? { uploadToken: resolved.tokenUsageUploadToken }
+        : {}),
+    });
+  codexSessionUsageCollector.start();
   let hostRuntime = null;
   function currentHostThreadBinding(threadId) {
     if (
@@ -1786,6 +1811,9 @@ export function createTaskboardServer(options = {}) {
         request,
         Boolean(resolved.instanceToken),
         resolved.trustedOrigins,
+        new URL(request.url, "http://127.0.0.1").pathname === "/api/local/token-usage/connect"
+          ? RANKING_CONNECT_ORIGINS
+          : new Set(),
       );
       const origin = request.headers.origin;
       const trustedEmbedOrigin = TRUSTED_EMBED_ORIGINS.has(origin)
@@ -3349,6 +3377,7 @@ export function createTaskboardServer(options = {}) {
       for (const response of aiEventResponses) response.end();
       aiEventResponses.clear();
       await aiChat.close();
+      await codexSessionUsageCollector.close();
       await tokenUsageCollector.close();
       await projectSummary.close();
       await serverClosed;
