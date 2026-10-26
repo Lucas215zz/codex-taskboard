@@ -45,6 +45,7 @@ import { TaskboardDatabase } from "./database.mjs";
 import { createJiraConfigStore } from "./jira-config.mjs";
 import { createJiraIntegration } from "./jira-integration.mjs";
 import { ProjectSummaryService } from "./project-summary.mjs";
+import { TokenUsageCollector } from "./token-usage.mjs";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const execFileAsync = promisify(execFile);
@@ -537,6 +538,19 @@ async function readJson(
   } catch {
     throw new ApiError(400, "INVALID_JSON", "Request body must contain valid JSON");
   }
+}
+
+async function readForm(request) {
+  const contentType = request.headers["content-type"]?.split(";", 1)[0].trim().toLowerCase();
+  if (contentType !== "application/x-www-form-urlencoded") {
+    throw new ApiError(
+      415,
+      "UNSUPPORTED_MEDIA_TYPE",
+      "Content-Type must be application/x-www-form-urlencoded",
+    );
+  }
+  const body = await readBody(request, JSON_BODY_LIMIT, "Request body cannot exceed 1 MiB");
+  return Object.fromEntries(new URLSearchParams(body.toString("utf8")));
 }
 
 async function assertEmptyRequestBody(request, routeLabel) {
@@ -1338,6 +1352,16 @@ export function resolveServerOptions(options = {}) {
     cloudConfigPath: options.cloudConfigPath ?? path.join(dataDirectory, "cloud-companion.json"),
     jiraConfigPath: options.jiraConfigPath ?? path.join(dataDirectory, "jira-connection.json"),
     clientStoragePath: options.clientStoragePath ?? path.join(dataDirectory, "client-storage.json"),
+    tokenUsageEventsPath: options.tokenUsageEventsPath
+      ?? path.join(dataDirectory, "token-usage-events.jsonl"),
+    tokenUsageStatePath: options.tokenUsageStatePath
+      ?? path.join(dataDirectory, "token-usage-state.json"),
+    tokenUsageConfigPath: options.tokenUsageConfigPath
+      ?? path.join(dataDirectory, "token-usage-config.json"),
+    tokenUsageUploadUrl: options.tokenUsageUploadUrl
+      ?? environment.CODEX_TOKEN_RANKING_UPLOAD_URL,
+    tokenUsageUploadToken: options.tokenUsageUploadToken
+      ?? environment.CODEX_TOKEN_RANKING_UPLOAD_TOKEN,
     staticDirectory: options.staticDirectory ?? path.join(PROJECT_ROOT, "dist", "web"),
     skillPath: options.skillPath
       ?? environment.CODEX_TASKBOARD_SKILL_PATH
@@ -1425,6 +1449,19 @@ export function createTaskboardServer(options = {}) {
     database,
     fetch: options.jiraFetch ?? globalThis.fetch,
   });
+  const tokenUsageCollector = options.tokenUsageCollector ?? new TokenUsageCollector({
+    dataDirectory: resolved.dataDirectory,
+    eventsPath: resolved.tokenUsageEventsPath,
+    statePath: resolved.tokenUsageStatePath,
+    configPath: resolved.tokenUsageConfigPath,
+    ...(resolved.tokenUsageUploadUrl !== undefined
+      ? { uploadUrl: resolved.tokenUsageUploadUrl }
+      : {}),
+    ...(resolved.tokenUsageUploadToken !== undefined
+      ? { uploadToken: resolved.tokenUsageUploadToken }
+      : {}),
+  });
+  tokenUsageCollector.start();
   let hostRuntime = null;
   function currentHostThreadBinding(threadId) {
     if (
@@ -1596,6 +1633,7 @@ export function createTaskboardServer(options = {}) {
     manageTaskboardSkillPath: resolved.skillPath,
     processEnv: codexProcessEnvironment,
     resolveContext: resolveAiChatContext,
+    tokenUsageCollector,
     remoteAppServerFactory: options.remoteAppServerFactory,
   });
   const projectSummary = new ProjectSummaryService({
@@ -2093,6 +2131,80 @@ export function createTaskboardServer(options = {}) {
             }
             : {}),
         });
+      }
+
+      if (pathname === "/api/local/token-usage") {
+        assertNoQuery(url.searchParams, "Token usage settings");
+        if (request.method === "GET") {
+          return sendJson(response, 200, { tokenUsage: await tokenUsageCollector.status() });
+        }
+        if (request.method === "PATCH") {
+          const body = await readJson(request);
+          assertPlainObject(body);
+          assertAllowedKeys(body, new Set(["enabled", "uploadUrl", "uploadToken"]));
+          if (body.enabled !== undefined && typeof body.enabled !== "boolean") {
+            throw new ApiError(400, "INVALID_FIELD", "'enabled' must be a boolean");
+          }
+          if (body.uploadUrl !== undefined && (
+            typeof body.uploadUrl !== "string"
+            || body.uploadUrl.length > 2048
+            || !/^https?:\/\//i.test(body.uploadUrl)
+          )) {
+            throw new ApiError(400, "INVALID_FIELD", "'uploadUrl' must be an HTTP(S) URL");
+          }
+          if (body.uploadToken !== undefined && (
+            typeof body.uploadToken !== "string" || body.uploadToken.length > 4096
+          )) {
+            throw new ApiError(400, "INVALID_FIELD", "'uploadToken' must be a string");
+          }
+          return sendJson(response, 200, {
+            tokenUsage: await tokenUsageCollector.updateSettings(body),
+          });
+        }
+        return methodNotAllowed(response, ["GET", "PATCH"]);
+      }
+
+      if (pathname === "/api/local/token-usage/connect") {
+        if (request.method !== "POST") return methodNotAllowed(response, ["POST"]);
+        const body = await readForm(request);
+        if (
+          typeof body.token !== "string"
+          || body.token.length < 16
+          || body.token.length > 4096
+        ) {
+          throw new ApiError(400, "INVALID_FIELD", "'token' is invalid");
+        }
+        await tokenUsageCollector.updateSettings({
+          enabled: true,
+          uploadToken: body.token,
+        });
+        let location = "/";
+        if (typeof body.returnUrl === "string" && body.returnUrl.length <= 2048) {
+          try {
+            const returnUrl = new URL(body.returnUrl);
+            if (
+              (returnUrl.protocol === "http:" || returnUrl.protocol === "https:")
+              && (returnUrl.hostname === "127.0.0.1" || returnUrl.hostname === "localhost")
+            ) {
+              location = returnUrl.toString();
+            }
+          } catch {
+            // Fall back to the local root when the supplied return URL is invalid.
+          }
+        }
+        response.writeHead(303, {
+          "cache-control": "no-store",
+          location,
+        });
+        response.end();
+        return;
+      }
+
+      if (pathname === "/api/local/token-usage/flush") {
+        if (request.method !== "POST") return methodNotAllowed(response, ["POST"]);
+        assertNoQuery(url.searchParams, "Token usage flush");
+        await assertEmptyRequestBody(request, "POST /api/local/token-usage/flush");
+        return sendJson(response, 200, { result: await tokenUsageCollector.flush() });
       }
 
       if (pathname === "/api/local/ai/catalog") {
@@ -3237,6 +3349,7 @@ export function createTaskboardServer(options = {}) {
       for (const response of aiEventResponses) response.end();
       aiEventResponses.clear();
       await aiChat.close();
+      await tokenUsageCollector.close();
       await projectSummary.close();
       await serverClosed;
       listening = false;

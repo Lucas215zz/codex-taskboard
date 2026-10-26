@@ -153,6 +153,12 @@ function issueMessageFor(error: unknown): TaskDetailError {
       "This issue changed elsewhere. Refresh and try again.",
     ];
   }
+  if (error instanceof ApiError && error.code === "PROJECT_BUSY") {
+    return [
+      "该项目已有进行中的议题，请先处理完再开始新的议题。",
+      "This project already has an issue in progress. Finish it before starting another.",
+    ];
+  }
   return messageFor(error);
 }
 

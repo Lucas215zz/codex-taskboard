@@ -559,6 +559,23 @@ kbd {
   flex: 0 0 auto;
 }
 
+.header-token-link {
+  flex: 0 0 auto;
+  max-width: none;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: var(--fs-body-sm);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.header-token-link svg {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+}
+
 .icon-button {
   display: inline-grid;
   place-items: center;

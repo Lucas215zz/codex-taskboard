@@ -145,7 +145,7 @@ function chatToResponses(chat, model) {
 }
 
 // ---------------------------------------------------------------- 代理服务
-export function startProxy({ port, target, key, log = () => {} }) {
+export function startProxy({ port, target, key, provider, onUsage, log = () => {} }) {
   const targetUrl = new URL(target.replace(/\/+$/, "") + "/chat/completions");
 
   const server = http.createServer(async (req, res) => {
@@ -251,6 +251,16 @@ export function startProxy({ port, target, key, log = () => {} }) {
         }
         const chat = JSON.parse(text);
         const responses = chatToResponses(chat, body.model);
+        if (chat.usage && typeof onUsage === "function") {
+          void Promise.resolve(onUsage({
+            provider,
+            model: chat.model || body.model,
+            usage: chat.usage,
+            sourceEventId: chat.id,
+          })).catch((error) => {
+            log(`记录 Token 用量失败: ${error instanceof Error ? error.message : String(error)}`);
+          });
+        }
         log(`${body.model} -> ${targetUrl.host}${targetUrl.pathname} OK`);
 
         if (wantStream) {

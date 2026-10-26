@@ -1610,6 +1610,11 @@ async function runRemoteTaskboardAutomation(record) {
   const listed = await taskboardRequest(
     `/api/tasks?projectId=${encodeURIComponent(request.taskboardProjectId)}&status=todo`,
   );
+  // 同一项目只允许一个进行中的议题，共用工作目录并行会互相覆盖文件。
+  const active = await taskboardRequest(
+    `/api/tasks?projectId=${encodeURIComponent(request.taskboardProjectId)}&status=in_progress`,
+  );
+  if ((active.tasks ?? []).length > 0) return;
   let selected;
   // 按优先级、手动排序、创建时间排序候选任务
   const sortedTasks = sortTasksByClaimPriority(listed.tasks ?? []);

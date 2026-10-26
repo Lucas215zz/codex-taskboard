@@ -31,6 +31,7 @@ import {
   getJiraConnection,
   getTaskboardRevision,
   getTaskboardMetadata,
+  getTokenUsageStatus,
   listArchivedTasks,
   listDevelopmentContexts,
   listDeviceWorkspaces,
@@ -764,6 +765,7 @@ export function App() {
   const [manageTaskboardSkillPath, setManageTaskboardSkillPath] = useState("");
   const [taskboardMetadata, setTaskboardMetadata] = useState<TaskboardMetadata | null>(null);
   const [localAiChatAvailable, setLocalAiChatAvailable] = useState(false);
+  const [tokenUsageKnown, setTokenUsageKnown] = useState(false);
   const [aiImportReadyProjectId, setAiImportReadyProjectId] = useState<string | null>(null);
   const [aiThreads, setAiThreads] = useState<AiChatThread[]>([]);
   const [aiOpenThreadRequest, setAiOpenThreadRequest] = useState<AiChatOpenThreadRequest | null>(null);
@@ -918,6 +920,32 @@ export function App() {
   const setAnnouncement = useCallback((message: string) => {
     dismissUndoToast();
     showToast(message);
+  }, []);
+
+  useEffect(() => {
+    if (!taskboardMetadata || taskboardMetadata.mode === "cloud") return;
+    let cancelled = false;
+    void getTokenUsageStatus()
+      .then(() => {
+        if (cancelled) return;
+        setTokenUsageKnown(true);
+      })
+      .catch(() => {
+        if (!cancelled) setTokenUsageKnown(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [taskboardMetadata]);
+
+  const tokenRankingUrl = useMemo(() => {
+    const url = new URL("https://ttokens.lusixian.com");
+    url.searchParams.set(
+      "callback",
+      resolveTaskboardUrl("/api/local/token-usage/connect"),
+    );
+    url.searchParams.set("return", window.location.href);
+    return url.toString();
   }, []);
 
   const markDashboardSummaryAnimationStarted = useCallback((projectId: string) => {
@@ -3724,6 +3752,19 @@ export function App() {
           <div ref={dragRegionRef} className="workspace-drag-region" aria-hidden="true" />
 
           <div className="header-actions">
+            {tokenUsageKnown && (
+              <a
+                className="header-project-button header-token-link"
+                href={tokenRankingUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={text("看看大家用了多少 Token", "See others' token usage")}
+                title={text("看看大家用了多少 Token", "See others' token usage")}
+              >
+                <span>{text("看看大家用了多少 Token", "See others' token usage")}</span>
+                <LinearIcon name="openExternal" />
+              </a>
+            )}
             {selectedProject && (
               <ProjectAutomationMenu
                 automation={selectedProjectAutomation}

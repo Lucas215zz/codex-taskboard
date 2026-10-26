@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startProxy } from "./responses-chat-proxy.mjs";
+import { TokenUsageCollector } from "./server/token-usage.mjs";
 
 // 项目根目录
 //
@@ -91,7 +92,13 @@ async function supportsResponses(baseUrl, key) {
   }
 }
 
-export async function startAllProxies({ log = console.log, force = false } = {}) {
+export async function startAllProxies({
+  log = console.log,
+  force = false,
+  tokenUsageCollector = new TokenUsageCollector({
+    dataDirectory: process.env.CODEX_TASKBOARD_DATA_DIR ?? path.join(PROJECT_ROOT, ".data"),
+  }),
+} = {}) {
   const models = JSON.parse(fs.readFileSync(WORKBUDDY_MODELS, "utf8"));
   const results = [];
 
@@ -132,6 +139,8 @@ export async function startAllProxies({ log = console.log, force = false } = {})
         port,
         target: baseUrl,
         key: info.key,
+        provider: pid,
+        onUsage: (usage) => tokenUsageCollector.recordRelayUsage(usage),
         log: (m) => log(`  [proxy:${pid}] ${m}`),
       });
       log(`  [代理] ${pid.padEnd(14)} http://127.0.0.1:${port}/responses -> ${baseUrl}/chat/completions`);

@@ -1,0 +1,20 @@
+[Unit]
+Description=Token Usage Ranking
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/apps/Token_Usage_Ranking
+Environment=NODE_ENV=production
+Environment=TOKEN_RANKING_HOST=127.0.0.1
+Environment=TOKEN_RANKING_PORT=3090
+Environment=TOKEN_RANKING_DATA_DIR=/opt/apps/Token_Usage_Ranking/data
+ExecStart=/usr/bin/node /opt/apps/Token_Usage_Ranking/server.mjs
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

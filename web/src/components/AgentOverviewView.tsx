@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import "./AgentOverviewView.css";
-import { useTaskboardI18n, taskStatusLabel } from "../i18n";
+import { useTaskboardI18n, taskPriorityLabel, taskStatusLabel } from "../i18n";
 import type { TaskboardLanguage } from "../i18n";
 import type { ActorIdentity, Project, Task } from "../types";
 import type { TaskCardPresentation } from "../taskConversations";
@@ -139,6 +139,35 @@ function timeLabel(date: Date) {
   return `${h}:${m}`;
 }
 
+function startOfToday(now: number) {
+  const value = new Date(now);
+  value.setHours(0, 0, 0, 0);
+  return value.getTime();
+}
+
+function taskFocusRank(task: Task, now: number) {
+  const today = startOfToday(now);
+  const due = task.dueDate ? new Date(`${task.dueDate}T00:00:00`).getTime() : null;
+  const overdue = due !== null && due < today;
+  const dueToday = due === today;
+  const priority = PRIORITY_ORDER[task.priority] ?? 9;
+  if (overdue) return 0;
+  if (dueToday) return 1;
+  if (task.status === "blocked") return 2;
+  if (task.status === "in_review") return 3;
+  return 4 + priority;
+}
+
+function focusTaskLabel(task: Task, now: number, language: TaskboardLanguage) {
+  const today = startOfToday(now);
+  const due = task.dueDate ? new Date(`${task.dueDate}T00:00:00`).getTime() : null;
+  if (due !== null && due < today) return language === "zh" ? "已逾期" : "Overdue";
+  if (due === today) return language === "zh" ? "今天到期" : "Due today";
+  if (task.status === "blocked") return language === "zh" ? "遇到阻碍" : "Blocked";
+  if (task.status === "in_review") return language === "zh" ? "等你确认" : "Needs review";
+  return taskPriorityLabel(language, task.priority);
+}
+
 /* ---------- pipeline bar ---------- */
 
 function Pipeline({
@@ -236,53 +265,75 @@ function ProjectRow({
   }, [editLabel, editValue, projectRecord, onProjectMetricUpdated]);
 
   return (
-    <div className="org-team">
+    <article className="dashboard-project-card">
       <div className="org-team-head">
         <span className="org-team-branch" aria-hidden="true" />
-        <button
-          type="button"
-          className="org-team-name"
-          onClick={() => onSelectProject(project.projectId)}
-          title={text("打开项目", "Open project")}
-        >
-          {displayName}
-        </button>
-        <select
-          className="org-dept-select"
-          value={project.departmentId}
-          onChange={(event) => onAssignDepartment(project.projectId, event.target.value)}
-          title={text("分配部门", "Assign department")}
-          aria-label={text("分配部门", "Assign department")}
-        >
-          <option value={UNASSIGNED_DEPARTMENT_ID}>
-            {text("未分配", "Unassigned")}
-          </option>
-          {departments.map((department) => (
-            <option key={department.id} value={department.id}>
-              {departmentName(department, language)}
-            </option>
-          ))}
-        </select>
-        <span className="org-team-activity">
-          {text("动静", "last")} {relativeDayLabel(project.quietDays, language)}
-        </span>
-        {project.automation && (
-          <span
-            className={`org-automation-badge${project.automation.enabled ? " is-on" : ""}`}
-            title={project.automation.enabled
-              ? text(
-                `自动认领每 ${project.automation.intervalMinutes} 分钟`,
-                `Auto-claim every ${project.automation.intervalMinutes} min`,
-              )
-              : text("自动认领未开启", "Auto-claim is off")}
+        <div className="dashboard-project-title">
+          <button
+            type="button"
+            className="org-team-name"
+            onClick={() => onSelectProject(project.projectId)}
+            title={text("打开项目", "Open project")}
           >
-            <i aria-hidden="true" />
-            {project.automation.enabled
-              ? text("自动认领", "auto")
-              : text("手动", "manual")}
+            {displayName}
+          </button>
+          <span className="org-team-activity">
+            {text("最近", "Active")} {relativeDayLabel(project.quietDays, language)}
           </span>
-        )}
-        <Pipeline counts={project.counts} text={text} />
+        </div>
+        <div className="dashboard-project-actions">
+          {project.automation && (
+            <span
+              className={`org-automation-badge${project.automation.enabled ? " is-on" : ""}`}
+              title={project.automation.enabled
+                ? text(
+                  `自动认领每 ${project.automation.intervalMinutes} 分钟`,
+                  `Auto-claim every ${project.automation.intervalMinutes} min`,
+                )
+                : text("自动认领未开启", "Auto-claim is off")}
+            >
+              <i aria-hidden="true" />
+              {project.automation.enabled
+                ? text("自动", "auto")
+                : text("手动", "manual")}
+            </span>
+          )}
+          <select
+            className="org-dept-select"
+            value={project.departmentId}
+            onChange={(event) => onAssignDepartment(project.projectId, event.target.value)}
+            title={text("分配部门", "Assign department")}
+            aria-label={text("分配部门", "Assign department")}
+          >
+            <option value={UNASSIGNED_DEPARTMENT_ID}>
+              {text("未分组", "Unassigned")}
+            </option>
+            {departments.map((department) => (
+              <option key={department.id} value={department.id}>
+                {departmentName(department, language)}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="dashboard-project-progress">
+        <div className="dashboard-project-progress-track">
+          <span
+            style={{
+              width: `${project.counts.total > 0
+                ? Math.min(100, Math.round((project.counts.done7 / project.counts.total) * 100))
+                : 0}%`,
+            }}
+          />
+        </div>
+        <span>
+          {project.counts.done7} {text("近 7 天完成", "shipped in 7d")}
+        </span>
+      </div>
+      <div className="dashboard-project-stats">
+        <span><strong>{project.counts.todo}</strong>{text("待办", "to do")}</span>
+        <span><strong>{project.counts.inProgress}</strong>{text("处理中", "running")}</span>
+        <span><strong>{project.counts.waiting}</strong>{text("等我", "for me")}</span>
         <div className="org-team-metric">
           {editing ? (
             <div className="org-metric-edit">
@@ -333,7 +384,7 @@ function ProjectRow({
       </div>
 
       {project.activeTasks.length > 0 && (
-        <ul className="org-tasklist">
+        <ul className="org-tasklist dashboard-project-tasks">
           {project.activeTasks.map((task) => {
             const presentation = presentations[task.id];
             const unread = presentation?.unread ?? false;
@@ -355,7 +406,7 @@ function ProjectRow({
           })}
         </ul>
       )}
-    </div>
+    </article>
   );
 }
 
@@ -642,21 +693,21 @@ export function AgentOverviewView({
     ));
   }, [summaries, departments, text]);
 
-  const projectOrder = useMemo(() => {
-    const order = new Map<string, number>();
-    for (const unit of departmentsSummary) {
-      for (const project of unit.projects) {
-        if (!order.has(project.projectId)) order.set(project.projectId, order.size);
-      }
-    }
-    return order;
-  }, [departmentsSummary]);
-
   const runningCount = scopedTasks.filter((task) => task.status === "in_progress").length;
   const openCount = scopedTasks.filter(isOpenTask).length;
   const unassignedCount = summaries.filter(
     (project) => project.departmentId === UNASSIGNED_DEPARTMENT_ID,
   ).length;
+  const focusTasks = useMemo(() => (
+    [...scopedTasks]
+      .filter(isOpenTask)
+      .sort((left, right) => (
+        taskFocusRank(left, now) - taskFocusRank(right, now)
+        || (PRIORITY_ORDER[left.priority] ?? 9) - (PRIORITY_ORDER[right.priority] ?? 9)
+        || left.updatedAt.localeCompare(right.updatedAt)
+      ))
+      .slice(0, 5)
+  ), [scopedTasks, now]);
 
   const statusLine = automation.activeCount > 0
     ? text(
@@ -673,26 +724,26 @@ export function AgentOverviewView({
   }, [onSetProjectAutomation]);
 
   return (
-    <div className="agent-overview orgchart">
-      <div className="org-canvas">
+    <div className="agent-overview dashboard">
+      <div className="dashboard-canvas">
         {/* top bar */}
-        <header className="org-topbar">
-          <div className="org-brand">
+        <header className="dashboard-topbar">
+          <div className="dashboard-heading">
             <span className="org-logo" aria-hidden="true">◆</span>
-            <span className="org-brand-name">Taskboard</span>
-            <span className="org-brand-sub">{text("公司组织架构", "Company Org Chart")}</span>
+            <span className="org-brand-name">{text("我的工作台", "My workspace")}</span>
+            <span className="org-brand-sub">{text("一人公司运营总览", "Solo operator dashboard")}</span>
           </div>
-          <div className="org-topbar-stats">
+          <div className="dashboard-kpis">
             <span className="org-stat">{departmentsSummary.length} {text("个部门", "units")}</span>
             <span className="org-stat">{summaries.length} {text("个项目", "projects")}</span>
             <span className="org-stat">{scopedTasks.length} {text("个议题", "issues")}</span>
             <span className="org-stat">{openCount} {text("个未结束", "open")}</span>
           </div>
-          <div className="org-topbar-right">
-            <span className="org-time">{timeLabel(nowDate)}</span>
+          <div className="dashboard-topbar-actions">
+            <span className="dashboard-time">{timeLabel(nowDate)}</span>
             <button
               type="button"
-              className={`org-toggle${settingsOpen ? " is-on" : ""}`}
+              className={`dashboard-action${settingsOpen ? " is-on" : ""}`}
               onClick={() => setSettingsOpen((previous) => !previous)}
               title={text("公司组织", "Company organization")}
             >
@@ -700,7 +751,7 @@ export function AgentOverviewView({
             </button>
             <button
               type="button"
-              className={`org-toggle${hideNames ? " is-on" : ""}`}
+              className={`dashboard-action${hideNames ? " is-on" : ""}`}
               onClick={toggleHideNames}
               title={hideNames ? text("显示项目", "Show names") : text("隐藏项目", "Hide names")}
             >
@@ -708,6 +759,38 @@ export function AgentOverviewView({
             </button>
           </div>
         </header>
+
+        <section className="dashboard-focus">
+          <div className="dashboard-section-heading">
+            <div>
+              <span className="dashboard-section-kicker">{text("现在就看", "Focus now")}</span>
+              <h2>{text("需要关注", "Needs attention")}</h2>
+            </div>
+            <span className="dashboard-section-count">{focusTasks.length} / 5</span>
+          </div>
+          {focusTasks.length > 0 ? (
+            <div className="dashboard-focus-grid">
+              {focusTasks.map((task) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  className={`dashboard-focus-card tone-${task.priority}${presentations[task.id]?.unread ? " is-unread" : ""}`}
+                  onClick={() => onOpenTask(task)}
+                  title={task.title}
+                >
+                  <span className="dashboard-focus-card-top">
+                    <span className="dashboard-focus-id">{task.identifier}</span>
+                    <span className="dashboard-focus-label">{focusTaskLabel(task, now, language)}</span>
+                  </span>
+                  <strong>{task.title}</strong>
+                  <span className="dashboard-focus-meta">{taskStatusLabel(language, task.status)}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="dashboard-empty">{text("当前没有需要立即处理的任务", "Nothing needs your immediate attention")}</div>
+          )}
+        </section>
 
         {/* CEO layer */}
         <section className="org-lead">
@@ -749,21 +832,28 @@ export function AgentOverviewView({
         </div>
 
         {/* departments */}
-        <section className="org-tree">
+        <section className="dashboard-projects">
+          <div className="dashboard-section-heading">
+            <div>
+              <span className="dashboard-section-kicker">{text("经营全貌", "Operating view")}</span>
+              <h2>{text("项目进展", "Projects")}</h2>
+            </div>
+            <span className="dashboard-section-count">{summaries.length} {text("个项目", "projects")}</span>
+          </div>
           {departmentsSummary.map((unit) => {
             const automationOn = unit.automationActiveCount > 0;
             const automationAll = unit.projects.length > 0
               && unit.automationActiveCount === unit.projects.length;
             return (
               <article
-                className={`org-unit${unit.isUnassigned ? " is-unassigned" : ""}`}
+                className={`dashboard-group${unit.isUnassigned ? " is-unassigned" : ""}`}
                 key={unit.id}
               >
                 <div className="org-unit-rail" aria-hidden="true">
                   <span className="org-unit-node" />
                 </div>
-                <div className="org-unit-card">
-                  <header className="org-unit-head">
+                <div className="dashboard-group-shell">
+                  <header className="dashboard-group-head">
                     <div className="org-unit-title">
                       <strong>{language === "zh" ? unit.name : unit.nameEn}</strong>
                       <span>{unit.projects.length} {text("个项目", "projects")}</span>
@@ -799,8 +889,8 @@ export function AgentOverviewView({
                     </button>
                     <Pipeline counts={unit.counts} text={text} />
                   </header>
-                  <div className="org-teams">
-                    {unit.projects.map((project) => (
+                  <div className="dashboard-project-grid">
+                    {unit.projects.map((project, index) => (
                       <ProjectRow
                         key={`${unit.id}-${project.projectId}`}
                         project={project}
@@ -809,7 +899,7 @@ export function AgentOverviewView({
                         language={language}
                         text={text}
                         hideNames={hideNames}
-                        displayIndex={projectOrder.get(project.projectId) ?? 0}
+                        displayIndex={index}
                         presentations={presentations}
                         onOpenTask={onOpenTask}
                         onSelectProject={onSelectProject}
@@ -837,8 +927,7 @@ export function AgentOverviewView({
           />
         )}
 
-        {/* footer summary */}
-        <footer className="org-foot">
+        <footer className="dashboard-footer">
           <span>{summaries.length} {text("个项目已归部", "projects assigned")}</span>
           <i aria-hidden="true">·</i>
           <span>{unassignedCount} {text("个项目未分配", "unassigned")}</span>
