@@ -10184,6 +10184,48 @@ kbd {
   font-weight: 650;
 }
 
+/* ---------- overview sub-tabs ---------- */
+
+.overview-shell {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.overview-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  padding: 10px 8px 0;
+}
+
+.overview-tab {
+  height: 24px;
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.overview-tab:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.overview-tab.active,
+.overview-tab.active:hover {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
 .toolbar-tools {
   gap: 6px;
 }

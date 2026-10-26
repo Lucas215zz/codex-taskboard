@@ -152,7 +152,8 @@ import { createRevisionPoller, createRevisionWebSocketClient, getRevisionPolling
 
 type ConnectionState = "connecting" | "live" | "reconnecting";
 type Theme = "light" | "dark";
-type BoardView = "readme" | "dashboard" | "agents" | "issues" | "list" | "gantt";
+type BoardView = "readme" | "overview" | "issues" | "list" | "gantt";
+type OverviewTab = "today" | "projects";
 type DetailSourceScroll =
   | { projectId: string; view: "issues"; status: TaskStatus; scrollTop: number; scrollLeft: number }
   | { projectId: string; view: "list"; scrollTop: number };
@@ -320,6 +321,7 @@ const ALL_PROJECTS_DEFAULT_BOARD_DISPLAY_SETTINGS: BoardDisplaySettings = {
 };
 const RECENT_PROJECT_IDS_KEY = "taskboard.recentProjectIds.v1";
 const PROJECT_VIEW_KEY_PREFIX = "taskboard.project-view.v1.";
+const OVERVIEW_TAB_KEY_PREFIX = "taskboard.overview-tab.v1.";
 const DEVICE_WORKSPACE_PATHS_KEY = "taskboard.deviceWorkspacePaths.v1";
 const PROJECT_CODEX_IDENTITIES_KEY = "taskboard.projectCodexIdentities.v1";
 const PROJECT_AUTOMATIONS_KEY = "taskboard.projectAutomations.v1";
@@ -331,9 +333,18 @@ function issueReadStorageKey(mode: string, task: Pick<Task, "id" | "projectId">)
 
 function readProjectBoardView(projectId: string): BoardView {
   const view = taskboardStorage.getItem(`${PROJECT_VIEW_KEY_PREFIX}${projectId}`);
-  return view === "readme" || view === "dashboard" || view === "agents" || view === "list" || view === "gantt" || view === "issues"
+  // Older builds stored the two overview halves as separate board views.
+  if (view === "dashboard" || view === "agents") return "overview";
+  return view === "readme" || view === "overview" || view === "list" || view === "gantt" || view === "issues"
     ? view
-    : "agents";
+    : "overview";
+}
+
+function readOverviewTab(projectId: string): OverviewTab {
+  const stored = taskboardStorage.getItem(`${OVERVIEW_TAB_KEY_PREFIX}${projectId}`);
+  if (stored === "projects" || stored === "today") return stored;
+  const legacyView = taskboardStorage.getItem(`${PROJECT_VIEW_KEY_PREFIX}${projectId}`);
+  return legacyView === "agents" ? "projects" : "today";
 }
 
 function readProjectBoardDisplaySettings(): Record<string, BoardDisplaySettings> {
@@ -805,6 +816,7 @@ export function App() {
   const [filters, setFilters] = useState(readTaskFilters);
   const [taskSort, setTaskSort] = useState<TaskSort>("default");
   const [boardView, setBoardView] = useState<BoardView>(() => readProjectBoardView(initialProjectId));
+  const [overviewTab, setOverviewTab] = useState<OverviewTab>(() => readOverviewTab(initialProjectId));
   const [projectBoardDisplaySettings, setProjectBoardDisplaySettings] = useState(
     readProjectBoardDisplaySettings,
   );
@@ -1892,16 +1904,23 @@ export function App() {
   useEffect(() => {
     if (selectedProjectId) {
       setBoardView(readProjectBoardView(selectedProjectId));
+      // taskboardStorage hydrates asynchronously, so the initial state is a
+      // guess; re-read once the server snapshot is available. Only adopt a
+      // value that actually exists, otherwise keep the default or the user's
+      // explicit choice.
+      if (taskboardStorage.getItem(`${OVERVIEW_TAB_KEY_PREFIX}${selectedProjectId}`)) {
+        setOverviewTab(readOverviewTab(selectedProjectId));
+      }
     }
   }, [selectedProjectId]);
 
   useEffect(() => {
     if (!selectedProjectId) {
       setDashboardSummaryAnimatedProjectId(null);
-    } else if (boardView !== "dashboard") {
+    } else if (boardView !== "overview" || overviewTab !== "today") {
       setDashboardSummaryAnimatedProjectId(selectedProjectId);
     }
-  }, [boardView, selectedProjectId]);
+  }, [boardView, overviewTab, selectedProjectId]);
 
   useEffect(() => {
     writeTaskFilters(filters);
@@ -2598,6 +2617,13 @@ export function App() {
     setBoardView(view);
     if (selectedProjectId) {
       taskboardStorage.setItem(`${PROJECT_VIEW_KEY_PREFIX}${selectedProjectId}`, view);
+    }
+  }
+
+  function selectOverviewTab(tab: OverviewTab) {
+    setOverviewTab(tab);
+    if (selectedProjectId) {
+      taskboardStorage.setItem(`${OVERVIEW_TAB_KEY_PREFIX}${selectedProjectId}`, tab);
     }
   }
 
@@ -3805,20 +3831,12 @@ export function App() {
         {selectedProjectId && <div className="board-toolbar">
           <div className="view-tabs" aria-label={text("看板视图", "Board views")}>
             <button
-              className={`view-tab${boardView === "dashboard" ? " active" : ""}`}
+              className={`view-tab${boardView === "overview" ? " active" : ""}`}
               type="button"
-              aria-pressed={boardView === "dashboard"}
-              onClick={() => selectBoardView("dashboard")}
+              aria-pressed={boardView === "overview"}
+              onClick={() => selectBoardView("overview")}
             >
-              {text("仪表盘", "Dashboard")}
-            </button>
-            <button
-              className={`view-tab${boardView === "agents" ? " active" : ""}`}
-              type="button"
-              aria-pressed={boardView === "agents"}
-              onClick={() => selectBoardView("agents")}
-            >
-              {text("Agent 总览", "Agent overview")}
+              {text("总览", "Overview")}
             </button>
             <button
               className={`view-tab${boardView === "issues" ? " active" : ""}`}
@@ -3965,7 +3983,7 @@ export function App() {
         )}
 
         {boardView !== "readme"
-          && boardView !== "agents"
+          && boardView !== "overview"
           && hasLoadedTasks
           && tasks.length === 0
           && selectedProject
@@ -4014,22 +4032,44 @@ export function App() {
             onOpenTask={openTaskDetail}
             onError={setActionError}
           />
-        ) : boardView === "dashboard" && (selectedProject || isAllProjects) ? (
-          <DashboardView
-            key={selectedProjectId}
-            projectId={selectedProjectId}
-            projectCreatedAt={selectedProject?.createdAt ?? null}
-            isAllProjects={isAllProjects}
-            tasks={tasks}
-            presentations={taskPresentations}
-            currentUser={currentUser}
-            animateSummary={dashboardSummaryAnimatedProjectId !== selectedProjectId}
-            onSummaryAnimationStart={markDashboardSummaryAnimationStarted}
-            onOpenTask={openTaskDetail}
-            onOpenConversation={openTaskConversation}
-          />
-        ) : boardView === "agents" && (selectedProject || isAllProjects) ? (
-          <AgentOverviewView
+        ) : boardView === "overview" && (selectedProject || isAllProjects) ? (
+          <div className="overview-shell">
+            <div className="overview-tabs" role="tablist" aria-label={text("总览分区", "Overview sections")}>
+              <button
+                type="button"
+                role="tab"
+                className={`overview-tab${overviewTab === "today" ? " active" : ""}`}
+                aria-selected={overviewTab === "today"}
+                onClick={() => selectOverviewTab("today")}
+              >
+                {text("今日", "Today")}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={`overview-tab${overviewTab === "projects" ? " active" : ""}`}
+                aria-selected={overviewTab === "projects"}
+                onClick={() => selectOverviewTab("projects")}
+              >
+                {text("项目", "Projects")}
+              </button>
+            </div>
+            {overviewTab === "today" ? (
+              <DashboardView
+                key={selectedProjectId}
+                projectId={selectedProjectId}
+                projectCreatedAt={selectedProject?.createdAt ?? null}
+                isAllProjects={isAllProjects}
+                tasks={tasks}
+                presentations={taskPresentations}
+                currentUser={currentUser}
+                animateSummary={dashboardSummaryAnimatedProjectId !== selectedProjectId}
+                onSummaryAnimationStart={markDashboardSummaryAnimationStarted}
+                onOpenTask={openTaskDetail}
+                onOpenConversation={openTaskConversation}
+              />
+            ) : (
+              <AgentOverviewView
             key={selectedProjectId}
             isAllProjects={isAllProjects}
             selectedProjectId={isAllProjects ? null : selectedProjectId}
@@ -4055,7 +4095,9 @@ export function App() {
             onSetProjectAutomation={(projectId, enabled) => {
               void setProjectAutomationEnabled(projectId, enabled);
             }}
-          />
+              />
+            )}
+          </div>
         ) : boardView === "list" ? (
           <IssueListView
             scrollRef={issueListRef}
