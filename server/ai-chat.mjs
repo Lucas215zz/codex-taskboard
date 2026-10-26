@@ -143,6 +143,7 @@ export class AiChatService {
     this.codexExecutable = options.codexExecutable;
     this.codexStatePath = options.codexStatePath;
     this.manageTaskboardSkillPath = options.manageTaskboardSkillPath;
+    this.tokenUsageCollector = options.tokenUsageCollector;
     this.processEnv = options.processEnv ?? process.env;
     this.killGraceMs = options.killGraceMs ?? 1_000;
     this.appServer = options.appServer ?? new CodexAppServer({
@@ -834,6 +835,7 @@ export class AiChatService {
       kind: "app-server",
       run,
       threadId: thread.id,
+      model: thread.model,
       appServer,
       appServerChild: appServer === this.appServer ? appServer.child : undefined,
       appServerThreadId,
@@ -1068,6 +1070,19 @@ export class AiChatService {
     ));
     if (!active) return;
 
+    if (notification.method === "thread/tokenUsage/updated") {
+      const tokenUsage = params.tokenUsage ?? params.token_usage;
+      void this.tokenUsageCollector?.recordThreadUsage({
+        threadId: params.threadId,
+        turnId: params.turnId ?? tokenUsage?.turnId,
+        model: active.model,
+        lastUsage: tokenUsage?.last,
+        totalUsage: tokenUsage?.total,
+      }).catch((error) => {
+        console.error(`Token usage collection failed: ${error.message}`);
+      });
+      return;
+    }
     if (notification.method === "turn/started") {
       if (typeof params.turn?.id === "string") active.turnId = params.turn.id;
       return;
@@ -1084,6 +1099,16 @@ export class AiChatService {
       return;
     }
     if (notification.method !== "turn/completed") return;
+    if (params.turn?.usage) {
+      void this.tokenUsageCollector?.recordThreadUsage({
+        threadId: params.threadId,
+        turnId: params.turn?.id ?? params.turnId,
+        model: active.model,
+        lastUsage: params.turn.usage,
+      }).catch((error) => {
+        console.error(`Token usage collection failed: ${error.message}`);
+      });
+    }
     const status = params.turn?.status;
     if (active.interrupted || status === "interrupted") {
       void this.#finishAppServerRun(active, "interrupted");

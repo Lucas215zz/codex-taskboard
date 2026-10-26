@@ -559,6 +559,42 @@ kbd {
   flex: 0 0 auto;
 }
 
+.header-token-toggle {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  gap: 5px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: var(--fs-caption);
+}
+
+.header-token-toggle:hover:not(:disabled),
+.header-token-toggle:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.header-token-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+
+.header-token-toggle.is-enabled .header-token-status {
+  background: var(--accent);
+}
+
+.header-token-link {
+  margin-left: 1px;
+}
+
 .icon-button {
   display: inline-grid;
   place-items: center;

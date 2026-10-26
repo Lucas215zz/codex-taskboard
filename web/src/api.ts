@@ -246,6 +246,45 @@ export async function getTaskboardMetadata(signal?: AbortSignal): Promise<Taskbo
   return request<TaskboardMetadata>("/api/meta", { signal });
 }
 
+export interface TokenUsageStatus {
+  enabled: boolean;
+  uploadUrl: string;
+  hasUploadToken: boolean;
+  queuedEvents: number;
+  lastUploadAt: string | null;
+  lastUploadError: string | null;
+}
+
+export async function getTokenUsageStatus(signal?: AbortSignal): Promise<TokenUsageStatus> {
+  const data = await request<{ tokenUsage: TokenUsageStatus }>(
+    "/api/local/token-usage",
+    { signal },
+  );
+  return data.tokenUsage;
+}
+
+export async function updateTokenUsageSettings(input: {
+  enabled?: boolean;
+  uploadUrl?: string;
+  uploadToken?: string;
+}): Promise<Pick<TokenUsageStatus, "enabled" | "uploadUrl" | "hasUploadToken">> {
+  const data = await request<{
+    tokenUsage: Pick<TokenUsageStatus, "enabled" | "uploadUrl" | "hasUploadToken">;
+  }>("/api/local/token-usage", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  return data.tokenUsage;
+}
+
+export async function flushTokenUsage(): Promise<{ uploaded: number; queued: number }> {
+  const data = await request<{ result: { uploaded: number; queued: number } }>(
+    "/api/local/token-usage/flush",
+    { method: "POST", body: "" },
+  );
+  return data.result;
+}
+
 export async function getTaskboardRevision(
   since: number,
   signal?: AbortSignal,

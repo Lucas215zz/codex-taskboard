@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Token 消耗排行榜</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; background: #f4f6f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { width: min(960px, calc(100% - 32px)); margin: 40px auto; }
+    header { display: flex; justify-content: space-between; align-items: end; gap: 20px; margin-bottom: 24px; }
+    h1 { margin: 0; font-size: 28px; }
+    p { color: #667085; }
+    section { background: white; border: 1px solid #dfe4ea; border-radius: 8px; padding: 20px; margin-top: 16px; }
+    form { display: grid; gap: 10px; max-width: 420px; }
+    input, button { min-height: 38px; border: 1px solid #c8d0da; border-radius: 6px; padding: 0 11px; font: inherit; }
+    button { cursor: pointer; background: #172033; color: white; border-color: #172033; }
+    button.secondary { background: white; color: #172033; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .muted { color: #667085; font-size: 14px; }
+    .hidden { display: none; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 12px 8px; border-bottom: 1px solid #edf0f3; }
+    th:last-child, td:last-child { text-align: right; }
+    .error { color: #b42318; min-height: 20px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Token 消耗排行榜</h1>
+        <p>统计 Codex 官方模型和中转模型的 Token 消耗。</p>
+      </div>
+      <div id="account" class="muted">未登录</div>
+    </header>
+    <section id="auth">
+      <div class="row">
+        <button id="show-login">登录</button>
+        <button id="show-register" class="secondary">注册</button>
+      </div>
+      <form id="auth-form">
+        <input id="username" autocomplete="username" placeholder="用户名">
+        <input id="display-name" class="hidden" autocomplete="name" placeholder="显示名称">
+        <input id="password" type="password" autocomplete="current-password" placeholder="密码（至少 8 位）">
+        <button id="submit-auth" type="submit">登录</button>
+        <div id="auth-error" class="error"></div>
+      </form>
+      <div id="connect-wrap" class="hidden">
+        <p class="muted">从 Taskboard 打开此页面时，可以把当前账号连接回 Taskboard。</p>
+        <button id="connect" type="button">连接 Taskboard</button>
+      </div>
+    </section>
+    <section>
+      <div class="row">
+        <h2 style="margin:0">排行榜</h2>
+        <span class="muted">按累计 Token 排序</span>
+      </div>
+      <table>
+        <thead><tr><th>排名</th><th>用户</th><th>事件数</th><th>累计 Token</th></tr></thead>
+        <tbody id="ranking-body"><tr><td colspan="4">加载中...</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+  <script>
+    const tokenKey = "token-ranking-token";
+    const state = { mode: "login", token: localStorage.getItem(tokenKey) || "" };
+    const $ = (id) => document.getElementById(id);
+    const api = async (path, options = {}) => {
+      const headers = { ...(options.body ? { "content-type": "application/json" } : {}), ...(state.token ? { authorization: `Bearer ${state.token}` } : {}) };
+      const response = await fetch(path, { ...options, headers: { ...headers, ...(options.headers || {}) } });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      return data;
+    };
+    function renderMode() {
+      $("display-name").classList.toggle("hidden", state.mode !== "register");
+      $("submit-auth").textContent = state.mode === "register" ? "注册" : "登录";
+      $("password").autocomplete = state.mode === "register" ? "new-password" : "current-password";
+    }
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[character]));
+    }
+    async function loadAccount() {
+      const data = await api("/api/me");
+      if (data.user) {
+        $("account").textContent = `已登录：${data.user.displayName}`;
+        $("auth-form").classList.add("hidden");
+        $("show-login").classList.add("hidden");
+        $("show-register").classList.add("hidden");
+        $("connect-wrap").classList.remove("hidden");
+      }
+    }
+    async function loadRanking() {
+      const data = await api("/api/rankings");
+      $("ranking-body").innerHTML = data.rankings.length
+        ? data.rankings.map((entry) => `<tr><td>${entry.rank}</td><td>${escapeHtml(entry.user.displayName)}</td><td>${entry.eventCount}</td><td>${entry.totalTokens.toLocaleString()}</td></tr>`).join("")
+        : '<tr><td colspan="4">暂无数据</td></tr>';
+    }
+    $("show-login").onclick = () => { state.mode = "login"; renderMode(); };
+    $("show-register").onclick = () => { state.mode = "register"; renderMode(); };
+    $("auth-form").onsubmit = async (event) => {
+      event.preventDefault();
+      $("auth-error").textContent = "";
+      try {
+        const data = await api(`/api/auth/${state.mode}`, { method: "POST", body: JSON.stringify({ username: $("username").value, password: $("password").value, displayName: $("display-name").value }) });
+        state.token = data.token;
+        localStorage.setItem(tokenKey, state.token);
+        await loadAccount();
+        await loadRanking();
+      } catch (error) {
+        $("auth-error").textContent = error.message;
+      }
+    };
+    $("connect").onclick = async () => {
+      const query = new URLSearchParams(location.search);
+      const callback = query.get("callback");
+      if (!callback) return;
+      const response = await fetch("/api/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${state.token}` },
+        body: JSON.stringify({ callback, returnUrl: query.get("return") || "" }),
+      });
+      document.open(); document.write(await response.text()); document.close();
+    };
+    renderMode();
+    loadAccount().catch(() => {});
+    loadRanking().catch(() => {});
+  </script>
+</body>
+</html>
