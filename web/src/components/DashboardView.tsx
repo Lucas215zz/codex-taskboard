@@ -285,33 +285,43 @@ function DashboardProgressChart({ progressData, todayValue }: {
 }) {
   const { locale, text } = useTaskboardI18n();
   const [progressHoverIndex, setProgressHoverIndex] = useState<number | null>(null);
-  const rangeEnd = new Date(todayValue);
-  rangeEnd.setMonth(rangeEnd.getMonth() + 3);
-  const rangeEndValue = rangeEnd.getTime();
+  const historySpan = Math.max(
+    DAY_MS,
+    todayValue - progressData.points[0].timestamp,
+  );
+  // History always keeps 78% of the width; the rest is a forecast window of at
+  // least two weeks so the axis stays legible for short-lived projects.
+  const forecastSpan = Math.max(
+    14 * DAY_MS,
+    progressData.forecast
+      ? Math.max(progressData.forecast.conservativeAt, progressData.forecast.optimisticAt) - todayValue
+      : 0,
+  );
+  const rangeEndValue = todayValue + forecastSpan;
   const progressChart = useMemo(() => {
     const left = 0;
     const right = 426;
     const top = 28;
     const bottom = 227;
-    const currentX = 294;
+    const historyStartValue = progressData.points[0].timestamp;
+    const currentX = left + (right - left) * 0.78;
+    const x = (value: number) => (value <= todayValue
+      ? left + (currentX - left) * ((value - historyStartValue) / (todayValue - historyStartValue))
+      : currentX + (right - currentX) * ((value - todayValue) / forecastSpan));
     const valueMaximum = Math.max(1, progressData.scope);
     const y = (value: number) => bottom - (value / valueMaximum) * (bottom - top);
-    const points = progressData.points.map((point, index) => ({
+    const points = progressData.points.map((point) => ({
       ...point,
-      x: left + ((currentX - left) * index) / (progressData.points.length - 1),
+      x: x(point.timestamp),
     }));
-    const path = (key: "scope" | "started" | "completed") => points
+    const path = (key: "scope" | "completed") => points
       .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)} ${y(point[key]).toFixed(2)}`)
       .join(" ");
     const completedPath = path("completed");
     const forecast = progressData.forecast
       ? {
-          optimisticX: currentX + ((right - currentX)
-            * (progressData.forecast.optimisticAt - todayValue))
-            / (rangeEndValue - todayValue),
-          conservativeX: currentX + ((right - currentX)
-            * (progressData.forecast.conservativeAt - todayValue))
-            / (rangeEndValue - todayValue),
+          optimisticX: x(progressData.forecast.optimisticAt),
+          conservativeX: x(progressData.forecast.conservativeAt),
         }
       : null;
     return {
@@ -323,13 +333,12 @@ function DashboardProgressChart({ progressData, todayValue }: {
       y,
       points,
       scopePath: `${path("scope")} L${right} ${y(progressData.scope).toFixed(2)}`,
-      startedPath: path("started"),
       completedPath,
       completedArea: `${completedPath} L${currentX} ${bottom} L${left} ${bottom} Z`,
       forecast,
       maximumCompletions: Math.max(1, ...progressData.points.map((point) => point.completions)),
     };
-  }, [progressData, rangeEndValue, todayValue]);
+  }, [forecastSpan, progressData, todayValue]);
   const hoveredProgressPoint = progressHoverIndex === null
     ? null
     : progressChart.points[progressHoverIndex];
@@ -342,8 +351,10 @@ function DashboardProgressChart({ progressData, todayValue }: {
         </div>
         <div className="dashboard-progress-legend">
           <span className="tone-scope"><i />{text("范围", "Scope")} <strong>{progressData.scope}</strong></span>
-          <span className="tone-started"><i />{text("已开始", "Started")} <strong>{progressData.started}</strong></span>
           <span className="tone-completed"><i />{text("已完成", "Completed")} <strong>{progressData.completed}</strong></span>
+          <span className="tone-remaining">
+            {text(`还剩 ${progressData.scope - progressData.completed} 项`, `${progressData.scope - progressData.completed} left`)}
+          </span>
         </div>
       </header>
       <div className="dashboard-progress-body">
@@ -352,8 +363,8 @@ function DashboardProgressChart({ progressData, todayValue }: {
           viewBox="0 0 426 272"
           role="img"
           aria-label={text(
-            `项目累计进度：范围 ${progressData.scope}，已开始 ${progressData.started}，已完成 ${progressData.completed}`,
-            `Cumulative project progress: scope ${progressData.scope}, started ${progressData.started}, completed ${progressData.completed}`,
+            `项目累计进度：范围 ${progressData.scope}，已完成 ${progressData.completed}，待完成 ${progressData.scope - progressData.completed}`,
+            `Cumulative project progress: scope ${progressData.scope}, completed ${progressData.completed}, remaining ${progressData.scope - progressData.completed}`,
           )}
         >
           <defs>
@@ -382,7 +393,6 @@ function DashboardProgressChart({ progressData, todayValue }: {
             />
           ) : null}
           <path className="dashboard-progress-line tone-scope" d={progressChart.scopePath} />
-          <path className="dashboard-progress-line tone-started" d={progressChart.startedPath} />
           <path className="dashboard-progress-line tone-completed" d={progressChart.completedPath} />
           {progressChart.forecast ? (
             <>
@@ -422,7 +432,6 @@ function DashboardProgressChart({ progressData, todayValue }: {
             y2={progressChart.bottom + 7}
           />
           <circle className="dashboard-progress-point tone-scope" cx={progressChart.currentX} cy={progressChart.y(progressData.scope)} r="4" />
-          <circle className="dashboard-progress-point tone-started" cx={progressChart.currentX} cy={progressChart.y(progressData.completed + progressData.started)} r="4" />
           <circle className="dashboard-progress-point tone-completed" cx={progressChart.currentX} cy={progressChart.y(progressData.completed)} r="4" />
 
           {hoveredProgressPoint ? (
@@ -443,7 +452,7 @@ function DashboardProgressChart({ progressData, todayValue }: {
                   {chartDate(hoveredProgressPoint.timestamp, locale)}
                 </text>
                 <text x="12" y="40">{text("范围", "Scope")} {hoveredProgressPoint.scope}</text>
-                <text x="12" y="58">{text("已开始", "Started")} {Math.max(0, hoveredProgressPoint.started - hoveredProgressPoint.completed)}</text>
+                <text x="12" y="58">{text("未完成", "Remaining")} {Math.max(0, hoveredProgressPoint.scope - hoveredProgressPoint.completed)}</text>
                 <text x="88" y="58">{text("已完成", "Completed")} {hoveredProgressPoint.completed}</text>
                 <text className="dashboard-progress-tooltip-delta" x="88" y="40">
                   Δ {hoveredProgressPoint.scope - (progressChart.points[Math.max(0, progressHoverIndex! - 1)]?.scope ?? hoveredProgressPoint.scope)}
@@ -465,8 +474,8 @@ function DashboardProgressChart({ progressData, todayValue }: {
                 role="button"
                 tabIndex={0}
                 aria-label={text(
-                  `${chartDate(point.timestamp, locale)}：范围 ${point.scope}，已开始 ${Math.max(0, point.started - point.completed)}，已完成 ${point.completed}`,
-                  `${chartDate(point.timestamp, locale)}: scope ${point.scope}, started ${Math.max(0, point.started - point.completed)}, completed ${point.completed}`,
+                  `${chartDate(point.timestamp, locale)}：范围 ${point.scope}，已完成 ${point.completed}，未完成 ${Math.max(0, point.scope - point.completed)}`,
+                  `${chartDate(point.timestamp, locale)}: scope ${point.scope}, completed ${point.completed}, remaining ${Math.max(0, point.scope - point.completed)}`,
                 )}
                 onMouseEnter={() => setProgressHoverIndex(index)}
                 onMouseLeave={() => setProgressHoverIndex(null)}
@@ -553,6 +562,7 @@ export function DashboardView({
   const {
     activeTasks, completedTasks, overdueTasks, upcomingTasks, projectCompletion,
     roleContributions, completedTotal, priorityCounts, labelCounts, totalLabelAssignments,
+    labeledTaskCount, unlabeledTaskCount, scopedTaskCount,
     visibleLabelCounts, maximumVisibleLabelCount, contributionWeeks, contributionMaximum,
     contributionDateFormatter, monthMarkers, metrics,
   } = useMemo(() => {
@@ -584,8 +594,9 @@ export function DashboardView({
       count: tasks.filter((task) => task.priority === priority).length,
     }));
 
+    const scopedTasks = tasks.filter((task) => task.status !== "canceled");
     const labelCountMap = new Map<string, number>();
-    for (const task of tasks) {
+    for (const task of scopedTasks) {
       for (const label of task.labels) {
         labelCountMap.set(label, (labelCountMap.get(label) ?? 0) + 1);
       }
@@ -605,6 +616,9 @@ export function DashboardView({
       1,
       labelCounts.reduce((total, item) => total + item.count, 0),
     );
+    const labeledTaskCount = scopedTasks.filter((task) => task.labels.length > 0).length;
+    const unlabeledTaskCount = Math.max(0, scopedTasks.length - labeledTaskCount);
+    const scopedTaskCount = scopedTasks.length;
     const visibleLabelCounts = (labelCounts.length > 12
       ? [
           ...labelCounts.slice(0, 11),
@@ -686,6 +700,7 @@ export function DashboardView({
     return {
       activeTasks, completedTasks, overdueTasks, upcomingTasks, projectCompletion,
       roleContributions, completedTotal, priorityCounts, labelCounts, totalLabelAssignments,
+      labeledTaskCount, unlabeledTaskCount, scopedTaskCount,
       visibleLabelCounts, maximumVisibleLabelCount, contributionWeeks, contributionMaximum,
       contributionDateFormatter, monthMarkers, metrics,
     };
@@ -986,7 +1001,13 @@ export function DashboardView({
           </section>
 
           <section className="dashboard-panel dashboard-tertiary-panel dashboard-label-panel">
-            <header><span>{text("标签分布", "Label distribution")} {Math.min(12, labelCounts.length)}</span></header>
+            <header>
+              <span>{text("标签分布", "Label distribution")}</span>
+              <b>{text(
+                `${labeledTaskCount}/${scopedTaskCount} 已标注 · ${unlabeledTaskCount} 未标注`,
+                `${labeledTaskCount}/${scopedTaskCount} labeled · ${unlabeledTaskCount} untagged`,
+              )}</b>
+            </header>
             {visibleLabelCounts.length ? (
               <div className="dashboard-label-chart">
                 {visibleLabelCounts.map((item) => (

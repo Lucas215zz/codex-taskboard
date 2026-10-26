@@ -343,8 +343,8 @@
 }
 
 .dashboard-view .dashboard-progress-legend .tone-scope { color: var(--text-quaternary); }
-.dashboard-view .dashboard-progress-legend .tone-started { color: var(--dashboard-accent); }
 .dashboard-view .dashboard-progress-legend .tone-completed { color: var(--success); }
+.dashboard-view .dashboard-progress-legend .tone-remaining { color: var(--text-tertiary); }
 
 .dashboard-view .dashboard-progress-body {
   display: flex;
