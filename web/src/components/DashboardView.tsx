@@ -12,7 +12,7 @@ import type {
   TaskCardPresentation,
   TaskConversationItem,
 } from "../taskConversations";
-import type { ActorIdentity, ProjectSummary, Task } from "../types";
+import type { ActorIdentity, Project, ProjectSummary, Task } from "../types";
 import { ActorAvatar } from "./ActorAvatar";
 import { PriorityIcon } from "./SemanticIcons";
 import { TaskConversationMenu } from "./TaskConversationMenu";
@@ -20,6 +20,7 @@ import { TaskConversationMenu } from "./TaskConversationMenu";
 interface DashboardViewProps {
   projectId: string;
   projectCreatedAt: string | null;
+  projects: Project[];
   isAllProjects: boolean;
   tasks: Task[];
   presentations: Record<string, TaskCardPresentation>;
@@ -505,10 +506,76 @@ function DashboardProgressChart({ progressData, todayValue }: {
     </div>
   );
 }
+const STALL_DAYS = 7;
+
+function dayGap(fromIso: string, nowValue: number) {
+  return Math.max(0, Math.floor((nowValue - new Date(fromIso).getTime()) / DAY_MS));
+}
+
+interface ProjectStage {
+  projectId: string;
+  name: string;
+  total: number;
+  todo: number;
+  active: number;
+  review: number;
+  done: number;
+  stalled: number;
+  staleDays: number;
+  lastActivity: string;
+}
+
+function buildProjectStages(
+  tasks: Task[],
+  projects: Project[],
+  nowValue: number,
+): ProjectStage[] {
+  const scoped = tasks.filter((task) => task.status !== "canceled");
+  const byProject = new Map<string, Task[]>();
+  for (const task of scoped) {
+    const list = byProject.get(task.projectId);
+    if (list) list.push(task);
+    else byProject.set(task.projectId, [task]);
+  }
+  const nameById = new Map(projects.map((project) => [project.id, project.name]));
+  return [...byProject.entries()]
+    .map(([projectId, list]) => {
+      const open = list.filter((task) => task.status !== "done");
+      const stale = open.filter((task) => dayGap(task.activityUpdatedAt, nowValue) >= STALL_DAYS);
+      const lastActivity = list
+        .map((task) => task.activityUpdatedAt)
+        .sort()
+        .at(-1) ?? "";
+      const openLastActivity = open
+        .map((task) => task.activityUpdatedAt)
+        .sort()
+        .at(-1) ?? "";
+      return {
+        projectId,
+        name: nameById.get(projectId) ?? projectId,
+        total: list.length,
+        todo: list.filter((task) => task.status === "todo" || task.status === "backlog").length,
+        active: list.filter((task) => task.status === "in_progress").length,
+        review: list.filter((task) => task.status === "in_review").length,
+        done: list.filter((task) => task.status === "done").length,
+        stalled: stale.length,
+        // Idle age must describe open work only; a fully finished project is
+        // not "idle", so it reports 0 and the row renders as wrapped up.
+        staleDays: openLastActivity ? dayGap(openLastActivity, nowValue) : 0,
+        lastActivity,
+      };
+    })
+    .sort((left, right) => (
+      right.stalled - left.stalled
+      || right.staleDays - left.staleDays
+      || right.total - left.total
+    ));
+}
 
 export function DashboardView({
   projectId,
   projectCreatedAt,
+  projects,
   isAllProjects,
   tasks,
   presentations,
@@ -559,43 +626,42 @@ export function DashboardView({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const todayValue = today.getTime();
+  const nowValue = Date.now();
 
   const {
-    activeTasks, completedTasks, overdueTasks, upcomingTasks, projectCompletion,
-    roleContributions, completedTotal, priorityCounts, labelCounts, totalLabelAssignments,
-    labeledTaskCount, unlabeledTaskCount, scopedTaskCount,
-    visibleLabelCounts, maximumVisibleLabelCount, contributionWeeks, contributionMaximum,
-    contributionDateFormatter, monthMarkers, metrics,
+    scopedTasks, activeTasks, completedTasks, projectCompletion,
+    reviewTasks, blockedTasks, stalledTasks, staleQueue, weekDone, prevWeekDone,
+    projectStages, labelCounts, totalLabelAssignments, labeledTaskCount,
+    unlabeledTaskCount, scopedTaskCount, visibleLabelCounts,
   } = useMemo(() => {
-    const upcomingEnd = todayValue + 14 * 86_400_000;
-    const activeTasks = tasks.filter((task) => task.status !== "done" && task.status !== "canceled");
-    const completedTasks = tasks.filter((task) => task.status === "done");
-    const overdueTasks = activeTasks.filter((task) => task.dueDate && dayValue(task.dueDate) < todayValue);
-    const upcomingTasks = activeTasks
-      .filter((task) => task.dueDate && dayValue(task.dueDate) <= upcomingEnd)
-      .sort((left, right) => (left.dueDate ?? "").localeCompare(right.dueDate ?? ""))
-      .slice(0, 5);
-    const projectCompletion = calculateProjectCompletion(tasks);
-    const roleContributionMap = new Map<string, { actor: Task["assignee"]; count: number }>();
-    for (const task of tasks) {
-      const key = `${task.assignee.type}:${task.assignee.id}`;
-      const current = roleContributionMap.get(key);
-      roleContributionMap.set(key, {
-        actor: task.assignee,
-        count: (current?.count ?? 0) + (task.status === "done" ? 1 : 0),
-      });
-    }
-    const roleContributions = [...roleContributionMap.values()]
-      .sort((left, right) => right.count - left.count);
-    const completedTotal = Math.max(1, completedTasks.length);
-
-    const priorityCounts = PRIORITIES.map((priority) => ({
-      priority,
-      label: taskPriorityLabel(language, priority),
-      count: tasks.filter((task) => task.priority === priority).length,
-    }));
-
     const scopedTasks = tasks.filter((task) => task.status !== "canceled");
+    const activeTasks = scopedTasks.filter((task) => task.status !== "done");
+    const completedTasks = scopedTasks.filter((task) => task.status === "done");
+    const projectCompletion = calculateProjectCompletion(tasks);
+
+    const reviewTasks = scopedTasks
+      .filter((task) => task.status === "in_review")
+      .sort((left, right) => left.activityUpdatedAt.localeCompare(right.activityUpdatedAt));
+    const blockedTasks = scopedTasks
+      .filter((task) => task.status === "blocked")
+      .sort((left, right) => left.activityUpdatedAt.localeCompare(right.activityUpdatedAt));
+    const stalledTasks = activeTasks
+      .filter((task) => dayGap(task.activityUpdatedAt, nowValue) >= STALL_DAYS)
+      .sort((left, right) => left.activityUpdatedAt.localeCompare(right.activityUpdatedAt));
+    const staleQueue = [...activeTasks]
+      .sort((left, right) => left.activityUpdatedAt.localeCompare(right.activityUpdatedAt))
+      .slice(0, 6);
+
+    const weekDone = completedTasks.filter((task) => (
+      nowValue - new Date(task.activityUpdatedAt).getTime() < 7 * DAY_MS
+    )).length;
+    const prevWeekDone = completedTasks.filter((task) => {
+      const age = nowValue - new Date(task.activityUpdatedAt).getTime();
+      return age >= 7 * DAY_MS && age < 14 * DAY_MS;
+    }).length;
+
+    const projectStages = buildProjectStages(tasks, projects, nowValue);
+
     const labelCountMap = new Map<string, number>();
     for (const task of scopedTasks) {
       for (const label of task.labels) {
@@ -609,14 +675,8 @@ export function DashboardView({
         sortName: labelPresentation(label).name,
         presentation: labelPresentation(label, language),
       }))
-      .sort((left, right) => (
-        right.count - left.count
-        || left.sortName.localeCompare(right.sortName)
-      ));
-    const totalLabelAssignments = Math.max(
-      1,
-      labelCounts.reduce((total, item) => total + item.count, 0),
-    );
+      .sort((left, right) => right.count - left.count || left.sortName.localeCompare(right.sortName));
+    const totalLabelAssignments = Math.max(1, labelCounts.reduce((total, item) => total + item.count, 0));
     const labeledTaskCount = scopedTasks.filter((task) => task.labels.length > 0).length;
     const unlabeledTaskCount = Math.max(0, scopedTasks.length - labeledTaskCount);
     const scopedTaskCount = scopedTasks.length;
@@ -635,77 +695,18 @@ export function DashboardView({
       : labelCounts
     ).map((item, index) => ({
       ...item,
-      color: item.label === "__other__" ? "var(--dashboard-other-label-color)" : LABEL_COLORS[index % LABEL_COLORS.length],
+      color: item.label === "__other__"
+        ? "var(--dashboard-other-label-color)"
+        : LABEL_COLORS[index % LABEL_COLORS.length],
     }));
-    const maximumVisibleLabelCount = Math.max(1, ...visibleLabelCounts.map((item) => item.count));
-
-    const activityByDay = new Map<string, number>();
-    for (const task of tasks) {
-      const key = dateKey(new Date(task.activityUpdatedAt));
-      activityByDay.set(key, (activityByDay.get(key) ?? 0) + 1);
-    }
-    const contributionStart = new Date(todayValue);
-    contributionStart.setDate(contributionStart.getDate() - contributionStart.getDay() - 51 * 7);
-    const contributionWeeks = Array.from({ length: 52 }, (_, weekIndex) => (
-      Array.from({ length: 7 }, (_, dayIndex) => {
-        const date = new Date(contributionStart);
-        date.setDate(date.getDate() + weekIndex * 7 + dayIndex);
-        const key = dateKey(date);
-        return {
-          date,
-          key,
-          count: activityByDay.get(key) ?? 0,
-          future: date.getTime() > todayValue,
-        };
-      })
-    ));
-    const contributionMaximum = Math.max(1, ...contributionWeeks.flat().map((day) => day.count));
-    const monthFormatter = new Intl.DateTimeFormat(locale, { month: "short" });
-    const contributionDateFormatter = new Intl.DateTimeFormat(locale, {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-    const monthMarkers = contributionWeeks.flatMap((week, weekIndex) => {
-      const firstDay = week.find((day) => day.date.getDate() === 1);
-      return firstDay ? [{ weekIndex, label: monthFormatter.format(firstDay.date) }] : [];
-    });
-    if (monthMarkers[0]?.weekIndex !== 0) {
-      monthMarkers.unshift({ weekIndex: 0, label: monthFormatter.format(contributionStart) });
-    }
-
-    const metrics = [
-      {
-        label: taskStatusLabel(language, "in_progress"),
-        value: tasks.filter((task) => task.status === "in_progress").length,
-        tone: "progress",
-      },
-      {
-        label: taskStatusLabel(language, "in_review"),
-        value: tasks.filter((task) => task.status === "in_review").length,
-        tone: "review",
-      },
-      {
-        label: taskStatusLabel(language, "blocked"),
-        value: tasks.filter((task) => task.status === "blocked").length,
-        tone: "blocked",
-      },
-      { label: text("已逾期", "Overdue"), value: overdueTasks.length, tone: "overdue" },
-      {
-        label: taskStatusLabel(language, "backlog"),
-        value: tasks.filter((task) => task.status === "backlog").length,
-        tone: "backlog",
-      },
-    ];
 
     return {
-      activeTasks, completedTasks, overdueTasks, upcomingTasks, projectCompletion,
-      roleContributions, completedTotal, priorityCounts, labelCounts, totalLabelAssignments,
-      labeledTaskCount, unlabeledTaskCount, scopedTaskCount,
-      visibleLabelCounts, maximumVisibleLabelCount, contributionWeeks, contributionMaximum,
-      contributionDateFormatter, monthMarkers, metrics,
+      scopedTasks, activeTasks, completedTasks, projectCompletion,
+      reviewTasks, blockedTasks, stalledTasks, staleQueue, weekDone, prevWeekDone,
+      projectStages, labelCounts, totalLabelAssignments, labeledTaskCount,
+      unlabeledTaskCount, scopedTaskCount, visibleLabelCounts,
     };
-  }, [language, locale, tasks, text, todayValue]);
+  }, [language, projects, tasks, text, nowValue]);
 
   const progressData = useMemo(() => {
     const aggregateCreatedAt = isAllProjects
@@ -713,31 +714,17 @@ export function DashboardView({
           !earliest || task.createdAt < earliest ? task.createdAt : earliest
         ), null)
       : null;
-    return buildProgressData(
-      tasks,
-      todayValue,
-      projectCreatedAt ?? aggregateCreatedAt,
-    );
+    return buildProgressData(tasks, todayValue, projectCreatedAt ?? aggregateCreatedAt);
   }, [isAllProjects, projectCreatedAt, tasks, todayValue]);
 
   const runningTasks = useMemo(() => tasks.filter(
     (task) => presentations[task.id]?.processing.running,
   ), [presentations, tasks]);
 
-  const attentionItems = useMemo(() => activeTasks
-    .filter((task) => task.status === "blocked" || presentations[task.id]?.unread)
-    .sort((left, right) => {
-      const leftUnread = presentations[left.id]?.unread ? 1 : 0;
-      const rightUnread = presentations[right.id]?.unread ? 1 : 0;
-      return rightUnread - leftUnread
-        || right.activityUpdatedAt.localeCompare(left.activityUpdatedAt);
-    })
-    .slice(0, 5), [activeTasks, presentations]);
-
   const summaryBody = isAllProjects
     ? text(
-        `所有项目共有 ${tasks.length} 个议题，${completedTasks.length} 个已完成，${activeTasks.length} 个尚未结束；当前 ${tasks.filter((task) => task.status === "blocked").length} 个遇到阻碍，${overdueTasks.length} 个已逾期。`,
-        `Across all projects, ${tasks.length} issues are tracked: ${completedTasks.length} completed and ${activeTasks.length} still open; ${tasks.filter((task) => task.status === "blocked").length} are blocked and ${overdueTasks.length} overdue.`,
+        `所有项目共有 ${tasks.length} 个议题，${activeTasks.length} 个未结束；${reviewTasks.length} 个等你拍板，${stalledTasks.length} 个停滞超过 ${STALL_DAYS} 天。`,
+        `Across all projects, ${tasks.length} issues tracked with ${activeTasks.length} open; ${reviewTasks.length} awaiting your call and ${stalledTasks.length} stalled over ${STALL_DAYS} days.`,
       )
     : projectSummary?.summary
       ?? (projectSummary?.refreshing
@@ -751,289 +738,216 @@ export function DashboardView({
               "Codex 正在整理当前项目的进展、风险和下一步重点…",
               "Codex is reviewing the project's progress, risks, and next steps…",
             ));
-  const hour = new Date().getHours();
-  const greeting = hour < 12
-    ? text("上午好", "Good morning")
-    : hour < 18
-      ? text("下午好", "Good afternoon")
-      : text("晚上好", "Good evening");
-  const summaryDate = new Intl.DateTimeFormat(locale, { month: "long", day: "numeric" }).format(today);
-  const summary = text(
-    `${greeting}，${currentUser.name}，今天是${summaryDate}，${summaryBody}`,
-    `${greeting}, ${currentUser.name}. Today is ${summaryDate}. ${summaryBody}`,
-  );
   const summaryReady = isAllProjects || projectSummary !== null || summaryLoadFailed;
+
+  const weekDelta = weekDone - prevWeekDone;
+  const decisionTotal = reviewTasks.length + blockedTasks.length;
+
   return (
     <div className="dashboard-view">
       <div className="dash-wb">
-      <header className="dash-hud">
-        <div className="dash-hud-score">
-          <span className="dash-eyebrow">{text("项目完成度", "Project completion")}</span>
-          <div className="dash-hud-figure">
-            <strong>{projectCompletion.percentage}<i>%</i></strong>
-            <small>{text(
-              projectCompletion.parentCount > 0
-                ? `${projectCompletion.completedParents}/${projectCompletion.parentCount} 个顶层议题 · ${completedTasks.length} 个已完成`
-                : "暂无可计算的议题",
-              projectCompletion.parentCount > 0
-                ? `${projectCompletion.completedParents}/${projectCompletion.parentCount} top-level · ${completedTasks.length} done`
-                : "No issues to calculate",
-            )}</small>
+        <header className="dash-hud">
+          <div className="dash-hud-brief">
+            <DashboardSummary
+              projectId={projectId}
+              summary={summaryBody}
+              summaryReady={summaryReady}
+              animateSummary={animateSummary}
+              onSummaryAnimationStart={onSummaryAnimationStart}
+            />
           </div>
-        </div>
 
-        <div className="dash-hud-brief">
-          <DashboardSummary
-            projectId={projectId}
-            summary={summary}
-            summaryReady={summaryReady}
-            animateSummary={animateSummary}
-            onSummaryAnimationStart={onSummaryAnimationStart}
-          />
-        </div>
+          <ul className="dash-hud-pulse">
+            <li className="tone-review">
+              <span>{text("等你拍板", "Awaiting you")}</span>
+              <strong>{reviewTasks.length}</strong>
+            </li>
+            <li className="tone-running">
+              <span>{text("Codex 在跑", "Codex running")}</span>
+              <strong>{runningTasks.length}</strong>
+            </li>
+            <li className="tone-stalled">
+              <span>{text(`停滞 ≥${STALL_DAYS} 天`, `Stalled ≥${STALL_DAYS}d`)}</span>
+              <strong>{stalledTasks.length}</strong>
+            </li>
+            <li className="tone-week">
+              <span>{text("本周完成", "Done this week")}</span>
+              <strong>
+                {weekDone}
+                <i className={weekDelta > 0 ? "is-up" : weekDelta < 0 ? "is-down" : undefined}>
+                  {weekDelta > 0 ? `+${weekDelta}` : weekDelta < 0 ? weekDelta : "±0"}
+                </i>
+              </strong>
+            </li>
+          </ul>
+        </header>
 
-        <dl className="dash-hud-tally">
-          {metrics.map((metric) => (
-            <div className={`dash-tally tone-${metric.tone}`} key={metric.label}>
-              <dt>{metric.label}</dt>
-              <dd>{metric.value}</dd>
-            </div>
-          ))}
-        </dl>
-      </header>
-
-      <div className="dash-body">
-        <div className="dash-main">
-          <section className="dash-card">
-            <header className="dash-card-head">
-              <h2>{text("累计进度", "Cumulative progress")}</h2>
-              <span className="dash-card-note">
-                {text(
-                  `还剩 ${Math.max(0, progressData.scope - progressData.completed)} 项未完成`,
-                  `${Math.max(0, progressData.scope - progressData.completed)} left`,
-                )}
-              </span>
-            </header>
-            <DashboardProgressChart progressData={progressData} todayValue={todayValue} />
-          </section>
-
-          <section className="dash-card dash-card-wide">
-            <header className="dash-card-head">
-              <h2>{text("活动热力", "Activity")}</h2>
-              <span className="dash-card-note">{text("过去 52 周", "Last 52 weeks")}</span>
-            </header>
-            <div className="dash-activity">
-              <div className="dash-activity-months" aria-hidden="true">
-                {monthMarkers.map((marker) => (
-                  <span
-                    style={{ gridColumn: marker.weekIndex + 1 }}
-                    key={`${marker.weekIndex}-${marker.label}`}
-                  >
-                    {marker.label}
-                  </span>
-                ))}
-              </div>
-              <div className="dash-activity-main">
-                <div className="dash-activity-weekdays" aria-hidden="true">
-                  <span style={{ gridRow: 2 }}>{text("一", "M")}</span>
-                  <span style={{ gridRow: 4 }}>{text("三", "W")}</span>
-                  <span style={{ gridRow: 6 }}>{text("五", "F")}</span>
-                </div>
-                <div
-                  className="dash-activity-grid"
-                  aria-label={text("过去一年议题更新热力", "Issue updates over the past year")}
-                >
-                  {contributionWeeks.flat().map((day) => {
-                    const level = day.count === 0
-                      ? 0
-                      : Math.min(4, Math.ceil((day.count / contributionMaximum) * 4));
-                    return (
-                      <span
-                        className={`dash-cell level-${level}${day.future ? " is-future" : ""}`}
-                        title={day.future ? undefined : text(
-                          `${contributionDateFormatter.format(day.date)} · ${day.count} 个议题更新`,
-                          `${contributionDateFormatter.format(day.date)} · ${day.count} updates`,
-                        )}
-                        key={day.key}
-                      />
-                    );
-                  })}
-                </div>
-              </div>
-              <div className="dash-activity-legend" aria-hidden="true">
-                <span>{text("少", "Less")}</span>
-                {[0, 1, 2, 3, 4].map((level) => <i className={`dash-cell level-${level}`} key={level} />)}
-                <span>{text("多", "More")}</span>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <aside className="dash-rail">
-          {attentionItems.length ? (
+        <div className="dash-body">
+          <div className="dash-main">
             <section className="dash-card">
               <header className="dash-card-head">
-                <h2>{text("需要关注", "Needs attention")}</h2>
-                <span className="dash-card-note">{attentionItems.length}</span>
+                <h2>{text("项目漏斗", "Project funnel")}</h2>
+                <span className="dash-card-note">
+                  {text(`按停滞排序 · 共 ${scopedTaskCount} 个议题`, `${scopedTaskCount} issues · stalled first`)}
+                </span>
               </header>
-              <ul className="dash-queue">
-                {attentionItems.map((task) => (
-                  <li key={task.id}>
-                    <button type="button" className="dash-queue-item" onClick={() => onOpenTask(task)}>
-                      {presentations[task.id]?.unread ? <i className="dash-dot" aria-hidden="true" /> : null}
-                      <span>{task.title}</span>
-                      <small>{task.externalKey ?? task.identifier}</small>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <ol className="dash-funnel">
+                {projectStages.map((stage) => {
+                  const pct = (value: number) => `${(value / Math.max(1, stage.total)) * 100}%`;
+                  return (
+                    <li key={stage.projectId} className={stage.stalled ? "has-stall" : undefined}>
+                      <div className="dash-funnel-head">
+                        <strong>{stage.name}</strong>
+                        <span className="dash-funnel-total">{stage.total}</span>
+                      </div>
+                      <div className="dash-funnel-bar" aria-hidden="true">
+                        <i className="seg-todo" style={{ width: pct(stage.todo) }} />
+                        <i className="seg-active" style={{ width: pct(stage.active) }} />
+                        <i className="seg-review" style={{ width: pct(stage.review) }} />
+                        <i className="seg-done" style={{ width: pct(stage.done) }} />
+                      </div>
+                      <div className="dash-funnel-foot">
+                        <span className="dash-funnel-counts">
+                          {text("待办", "Todo")} {stage.todo}
+                          {" · "}
+                          {text("进行", "Doing")} {stage.active}
+                          {" · "}
+                          {text("待确认", "Review")} {stage.review}
+                          {" · "}
+                          {text("完成", "Done")} {stage.done}
+                        </span>
+                        <span className={`dash-funnel-age${stage.staleDays >= STALL_DAYS ? " is-stale" : ""}`}>
+                          {stage.total === stage.done
+                            ? text("已收尾", "wrapped up")
+                            : stage.staleDays === 0
+                              ? text("今天有动", "active today")
+                              : text(`${stage.staleDays} 天未动`, `${stage.staleDays}d idle`)}
+                          {stage.stalled ? ` · ${stage.stalled} 停滞` : ""}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
             </section>
-          ) : null}
 
-          {runningTasks.length ? (
             <section className="dash-card">
               <header className="dash-card-head">
-                <h2>{text("运行中", "Running")}</h2>
-                <span className="dash-card-note">{runningTasks.length}</span>
+                <h2>{text("累计进度", "Cumulative progress")}</h2>
+                <span className="dash-card-note">
+                  {text(
+                    `完成率 ${scopedTaskCount ? Math.round((completedTasks.length / scopedTaskCount) * 100) : 0}%`,
+                    `${scopedTaskCount ? Math.round((completedTasks.length / scopedTaskCount) * 100) : 0}% done`,
+                  )}
+                </span>
               </header>
-            <ul className="dash-queue">
-              {runningTasks.map((task) => (
-                <li key={task.id}>
-                  <div className="dash-run">
-                    <button type="button" className="dash-queue-item" onClick={() => onOpenTask(task)}>
-                      <span>{task.title}</span>
-                      <small>{task.externalKey ?? task.identifier}</small>
-                    </button>
-                    <div className="dash-run-foot">
-                      <span className="task-processing is-running">
-                        <img className="task-processing-glyph" src={processingAnimation} alt="" aria-hidden="true" />
-                        <span className="task-processing-label">{text("正在处理…", "Processing…")}</span>
-                      </span>
-                      <TaskConversationMenu
-                        conversations={presentations[task.id].conversations}
-                        onOpenConversation={onOpenConversation}
-                      />
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </section>
-          ) : null}
+              <DashboardProgressChart progressData={progressData} todayValue={todayValue} />
+            </section>
+          </div>
 
-          {upcomingTasks.length ? (
+          <aside className="dash-rail">
             <section className="dash-card">
               <header className="dash-card-head">
-                <h2>{text("即将到期", "Due soon")}</h2>
-                <span className="dash-card-note">{upcomingTasks.length}</span>
+                <h2>{text("等你拍板", "Awaiting you")}</h2>
+                <span className="dash-card-note">{reviewTasks.length}</span>
               </header>
-            <ul className="dash-queue">
-              {upcomingTasks.map((task) => (
-                <li key={task.id}>
-                  <button type="button" className="dash-queue-item" onClick={() => onOpenTask(task)}>
-                    <span>{task.title}</span>
-                    <small>{shortDate(task.dueDate!, locale)}</small>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-          ) : null}
-
-          <section className="dash-card">
-            <header className="dash-card-head">
-              <h2>{text("标签分布", "Labels")}</h2>
-              <span className="dash-card-note">
-                {text(
-                  `${labeledTaskCount}/${scopedTaskCount} 已标注`,
-                  `${labeledTaskCount}/${scopedTaskCount} labeled`,
-                )}
-              </span>
-            </header>
-            {visibleLabelCounts.length ? (
-              <>
-                <div className="dash-labelbar" role="img" aria-label={text("标签占比", "Label share")}>
-                  {visibleLabelCounts.map((item) => (
-                    <i
-                      key={item.label}
-                      style={{
-                        width: `${(item.count / totalLabelAssignments) * 100}%`,
-                        background: item.color,
-                      }}
-                      title={`${item.presentation.name} · ${item.count}`}
-                    />
-                  ))}
-                </div>
-                <ul className="dash-chips">
-                  {visibleLabelCounts.map((item) => (
-                    <li key={item.label}>
-                      <i style={{ background: item.color }} aria-hidden="true" />
-                      <span>{item.presentation.name}</span>
-                      <b>{item.count}</b>
+              {reviewTasks.length ? (
+                <ul className="dash-queue">
+                  {reviewTasks.map((task) => (
+                    <li key={task.id}>
+                      <button type="button" className="dash-queue-item" onClick={() => onOpenTask(task)}>
+                        <span>{task.title}</span>
+                        <small>{task.identifier}</small>
+                      </button>
                     </li>
                   ))}
                 </ul>
-                {unlabeledTaskCount ? (
-                  <p className="dash-footnote">
-                    {text(
-                      `另有 ${unlabeledTaskCount} 个议题未打标签`,
-                      `${unlabeledTaskCount} issues untagged`,
-                    )}
-                  </p>
-                ) : null}
-              </>
-            ) : (
-              <p className="dash-empty">{text("当前没有标签数据", "No label data")}</p>
-            )}
-          </section>
+              ) : <p className="dash-empty">{text("没有等着你确认的议题", "Nothing awaiting you")}</p>}
+            </section>
 
-          <section className="dash-card">
-            <header className="dash-card-head">
-              <h2>{text("优先级", "Priority")}</h2>
-            </header>
-            <div className="dash-priobar" aria-hidden="true">
-              {priorityCounts.map((item) => (
-                <i
-                  className={`tone-${item.priority}`}
-                  key={item.priority}
-                  style={{ width: `${scopedTaskCount ? (item.count / scopedTaskCount) * 100 : 0}%` }}
-                  title={`${item.label} · ${item.count}`}
-                />
-              ))}
-            </div>
-            <ul className="dash-legend">
-              {priorityCounts.map((item) => (
-                <li className={`tone-${item.priority}`} key={item.priority}>
-                  <i aria-hidden="true" />
-                  <span>{item.label}</span>
-                  <b>{item.count}</b>
-                </li>
-              ))}
-            </ul>
-          </section>
+            <section className="dash-card">
+              <header className="dash-card-head">
+                <h2>{text("卡住了", "Blocked")}</h2>
+                <span className="dash-card-note">{blockedTasks.length}</span>
+              </header>
+              {blockedTasks.length ? (
+                <ul className="dash-queue">
+                  {blockedTasks.map((task) => (
+                    <li key={task.id}>
+                      <button type="button" className="dash-queue-item" onClick={() => onOpenTask(task)}>
+                        <span>{task.title}</span>
+                        <small>{task.identifier}</small>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="dash-empty">{text("没有卡住的议题", "Nothing blocked")}</p>}
+            </section>
 
-          <section className="dash-card">
-            <header className="dash-card-head">
-              <h2>{text("谁在做", "By owner")}</h2>
-              <span className="dash-card-note">{roleContributions.length}</span>
-            </header>
-            {roleContributions.length ? (
-              <ul className="dash-owners">
-                {roleContributions.map((item) => (
-                  <li key={`${item.actor.type}:${item.actor.id}`}>
-                    <ActorAvatar actor={actorKey(item.actor) === actorKey(currentUser) ? currentUser : item.actor} />
-                    <span className="dash-owner-copy">
-                      <strong>{item.actor.name}</strong>
-                      <small>{text(`${item.count} 个已完成`, `${item.count} done`)}</small>
-                    </span>
-                    <b>{Math.round((item.count / completedTotal) * 100)}%</b>
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="dash-empty">{text("暂无角色数据", "No role data")}</p>}
-          </section>
-        </aside>
-      </div>
+            <section className="dash-card">
+              <header className="dash-card-head">
+                <h2>{text("最久没动", "Idle longest")}</h2>
+                <span className="dash-card-note">{stalledTasks.length}</span>
+              </header>
+              {staleQueue.length ? (
+                <ul className="dash-queue">
+                  {staleQueue.map((task) => (
+                    <li key={task.id}>
+                      <button type="button" className="dash-queue-item" onClick={() => onOpenTask(task)}>
+                        <span>{task.title}</span>
+                        <small className={dayGap(task.activityUpdatedAt, nowValue) >= STALL_DAYS ? "is-stale" : undefined}>
+                          {dayGap(task.activityUpdatedAt, nowValue)}{text(" 天", "d")}
+                        </small>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="dash-empty">{text("所有议题都在推进", "Everything is moving")}</p>}
+            </section>
+
+            <section className="dash-card">
+              <header className="dash-card-head">
+                <h2>{text("标签覆盖", "Labels")}</h2>
+                <span className="dash-card-note">
+                  {text(`${labeledTaskCount}/${scopedTaskCount}`, `${labeledTaskCount}/${scopedTaskCount}`)}
+                </span>
+              </header>
+              {visibleLabelCounts.length ? (
+                <>
+                  <div className="dash-labelbar" role="img" aria-label={text("标签占比", "Label share")}>
+                    {visibleLabelCounts.map((item) => (
+                      <i
+                        key={item.label}
+                        style={{
+                          width: `${(item.count / totalLabelAssignments) * 100}%`,
+                          background: item.color,
+                        }}
+                        title={`${item.presentation.name} · ${item.count}`}
+                      />
+                    ))}
+                  </div>
+                  <ul className="dash-legend">
+                    {visibleLabelCounts.slice(0, 6).map((item) => (
+                      <li key={item.label}>
+                        <i style={{ background: item.color }} aria-hidden="true" />
+                        <span>{item.presentation.name}</span>
+                        <b>{item.count}</b>
+                      </li>
+                    ))}
+                  </ul>
+                  {unlabeledTaskCount ? (
+                    <p className="dash-footnote">
+                      {text(
+                        `另有 ${unlabeledTaskCount} 个议题未打标签`,
+                        `${unlabeledTaskCount} issues untagged`,
+                      )}
+                    </p>
+                  ) : null}
+                </>
+              ) : <p className="dash-empty">{text("当前没有标签数据", "No label data")}</p>}
+            </section>
+          </aside>
+        </div>
       </div>
     </div>
   );
