@@ -202,6 +202,64 @@
   gap: var(--dash-gap);
 }
 
+/* ---------- composed overview page ---------- */
+
+/* Left column carries the operating view, right column carries today's
+   decisions. A hairline separates them so the two halves read as one page
+   rather than two stacked panels. */
+.dashboard-view.is-composed .dash-body {
+  grid-template-columns: minmax(0, 1fr) minmax(288px, 340px);
+  align-items: start;
+}
+
+.dashboard-view.is-composed .dash-main {
+  gap: 18px;
+  padding-right: 20px;
+  border-right: var(--border-hairline) solid var(--border);
+}
+
+.dashboard-view.is-composed .dash-main > .agent-overview {
+  min-width: 0;
+}
+
+.dashboard-view.is-composed .dash-rail {
+  gap: 6px;
+  padding-left: 4px;
+  align-content: start;
+  position: sticky;
+  top: 0;
+}
+
+/* Keep the rail visually anchored to the top of the page; it holds today's
+   decisions and should never look like a half-filled column. */
+.dashboard-view.is-composed .dash-rail .dash-queue {
+  gap: 0;
+}
+
+.dashboard-view.is-composed .dash-rail .dash-queue-item {
+  padding-block: 5px;
+}
+
+.dashboard-view.is-composed .dash-rail .dash-card {
+  padding: 12px 0 14px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.dashboard-view.is-composed .dash-rail .dash-card + .dash-card {
+  border-top: var(--border-hairline) solid var(--border);
+}
+
+.dashboard-view.is-composed .dash-rail .dash-card:first-child {
+  padding-top: 0;
+}
+
+.dashboard-view.is-composed .dash-rail .dash-empty {
+  padding: 0;
+  color: var(--text-quaternary);
+}
+
 /* ---------- brief ---------- */
 
 .dash-brief {
@@ -379,6 +437,33 @@
   height: auto;
   aspect-ratio: 640 / 272;
   overflow: visible;
+}
+
+/* The chart sits under the project tree here; keep it to its natural ratio so
+   it stays legible instead of stretching the column. */
+.dashboard-view.is-composed .dash-chart {
+  grid-template-columns: minmax(0, 1fr) 148px;
+  gap: 8px;
+  align-items: start;
+}
+
+.dashboard-view.is-composed .dash-chart-stats {
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 0 0 12px;
+  border-left: var(--border-hairline) solid var(--border);
+  border-top: 0;
+}
+
+.dashboard-view.is-composed .dash-chart-stats > div {
+  align-items: flex-start;
+  padding-left: 0;
+}
+
+/* Progress reads as a slim closing strip beneath the project tree. */
+.dash-progress-strip {
+  margin-top: 4px;
 }
 
 .dashboard-progress-baseline {

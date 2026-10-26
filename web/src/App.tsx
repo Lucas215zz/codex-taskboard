@@ -4033,71 +4033,49 @@ export function App() {
             onError={setActionError}
           />
         ) : boardView === "overview" && (selectedProject || isAllProjects) ? (
-          <div className="overview-shell">
-            <div className="overview-tabs" role="tablist" aria-label={text("总览分区", "Overview sections")}>
-              <button
-                type="button"
-                role="tab"
-                className={`overview-tab${overviewTab === "today" ? " active" : ""}`}
-                aria-selected={overviewTab === "today"}
-                onClick={() => selectOverviewTab("today")}
-              >
-                {text("今日", "Today")}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                className={`overview-tab${overviewTab === "projects" ? " active" : ""}`}
-                aria-selected={overviewTab === "projects"}
-                onClick={() => selectOverviewTab("projects")}
-              >
-                {text("项目", "Projects")}
-              </button>
-            </div>
-            {overviewTab === "today" ? (
-              <DashboardView
-                key={selectedProjectId}
-                projectId={selectedProjectId}
-                projectCreatedAt={selectedProject?.createdAt ?? null}
-                isAllProjects={isAllProjects}
-                tasks={tasks}
-                presentations={taskPresentations}
-                currentUser={currentUser}
-                animateSummary={dashboardSummaryAnimatedProjectId !== selectedProjectId}
-                onSummaryAnimationStart={markDashboardSummaryAnimationStarted}
-                onOpenTask={openTaskDetail}
-                onOpenConversation={openTaskConversation}
-              />
-            ) : (
-              <AgentOverviewView
+          <DashboardView
             key={selectedProjectId}
+            projectId={selectedProjectId}
+            projectCreatedAt={selectedProject?.createdAt ?? null}
             isAllProjects={isAllProjects}
-            selectedProjectId={isAllProjects ? null : selectedProjectId}
-            currentUser={currentUser}
             tasks={tasks}
-            projects={projects}
             presentations={taskPresentations}
-            projectNames={projectNames}
-            automation={agentOverviewAutomation}
-            projectAutomations={agentOverviewProjectAutomations}
-            automationUnavailableReason={agentOverviewAutomationUnavailableReason}
+            currentUser={currentUser}
+            animateSummary={dashboardSummaryAnimatedProjectId !== selectedProjectId}
+            onSummaryAnimationStart={markDashboardSummaryAnimationStarted}
             onOpenTask={openTaskDetail}
-            onSelectProject={(projectId) => {
-              const choice = projectChoices.find((project) => project.id === projectId);
-              if (choice) void selectProject(choice);
-              else changeProject(projectId);
-            }}
-            onProjectMetricUpdated={(project) => {
-              setProjects((previous) => previous.map(
-                (candidate) => candidate.id === project.id ? project : candidate,
-              ));
-            }}
-            onSetProjectAutomation={(projectId, enabled) => {
-              void setProjectAutomationEnabled(projectId, enabled);
-            }}
+            onOpenConversation={openTaskConversation}
+            projectsPanel={(
+              <AgentOverviewView
+                embedded
+                key={selectedProjectId}
+                isAllProjects={isAllProjects}
+                selectedProjectId={isAllProjects ? null : selectedProjectId}
+                currentUser={currentUser}
+                tasks={tasks}
+                projects={projects}
+                presentations={taskPresentations}
+                projectNames={projectNames}
+                automation={agentOverviewAutomation}
+                projectAutomations={agentOverviewProjectAutomations}
+                automationUnavailableReason={agentOverviewAutomationUnavailableReason}
+                onOpenTask={openTaskDetail}
+                onSelectProject={(projectId) => {
+                  const choice = projectChoices.find((project) => project.id === projectId);
+                  if (choice) void selectProject(choice);
+                  else changeProject(projectId);
+                }}
+                onProjectMetricUpdated={(project) => {
+                  setProjects((previous) => previous.map(
+                    (candidate) => candidate.id === project.id ? project : candidate,
+                  ));
+                }}
+                onSetProjectAutomation={(projectId, enabled) => {
+                  void setProjectAutomationEnabled(projectId, enabled);
+                }}
               />
             )}
-          </div>
+          />
         ) : boardView === "list" ? (
           <IssueListView
             scrollRef={issueListRef}

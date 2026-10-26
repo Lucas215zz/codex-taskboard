@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 import "./DashboardView.css";
 import dueDoneIcon from "../assets/figma-taskboard/dashboard-due-done.svg";
@@ -20,6 +21,9 @@ import { TaskConversationMenu } from "./TaskConversationMenu";
 interface DashboardViewProps {
   projectId: string;
   projectCreatedAt: string | null;
+  /** Renders the composed single-page overview: the project tree fills the
+   *  main column while progress and the decision queues sit in the rail. */
+  projectsPanel?: ReactNode;
   isAllProjects: boolean;
   tasks: Task[];
   presentations: Record<string, TaskCardPresentation>;
@@ -514,6 +518,7 @@ function dayGap(fromIso: string, nowValue: number) {
 export function DashboardView({
   projectId,
   projectCreatedAt,
+  projectsPanel,
   isAllProjects,
   tasks,
   presentations,
@@ -680,7 +685,7 @@ export function DashboardView({
   const decisionTotal = reviewTasks.length + blockedTasks.length;
 
   return (
-    <div className="dashboard-view">
+    <div className={`dashboard-view${projectsPanel ? " is-composed" : ""}`}>
       <div className="dash-wb">
         <header className="dash-hud">
           <div className="dash-hud-brief">
@@ -720,6 +725,23 @@ export function DashboardView({
 
         <div className="dash-body">
           <div className="dash-main">
+            {projectsPanel ? (
+              <>
+                {projectsPanel}
+                <section className="dash-card dash-progress-strip">
+                  <header className="dash-card-head">
+                    <h2>{text("累计进度", "Cumulative progress")}</h2>
+                    <span className="dash-card-note">
+                      {text(
+                        `完成率 ${scopedTaskCount ? Math.round((completedTasks.length / scopedTaskCount) * 100) : 0}%`,
+                        `${scopedTaskCount ? Math.round((completedTasks.length / scopedTaskCount) * 100) : 0}% done`,
+                      )}
+                    </span>
+                  </header>
+                  <DashboardProgressChart progressData={progressData} todayValue={todayValue} />
+                </section>
+              </>
+            ) : (
             <section className="dash-card">
               <header className="dash-card-head">
                 <h2>{text("累计进度", "Cumulative progress")}</h2>
@@ -732,6 +754,7 @@ export function DashboardView({
               </header>
               <DashboardProgressChart progressData={progressData} todayValue={todayValue} />
             </section>
+            )}
           </div>
 
           <aside className="dash-rail">

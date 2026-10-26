@@ -941,6 +941,26 @@
   color: var(--text-primary);
 }
 
+/* Composed inside the single overview page: the page owns scrolling and
+   background, so this becomes a plain column of content. */
+.agent-overview.dashboard.is-embedded {
+  overflow: visible;
+  background: transparent;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-canvas {
+  width: 100%;
+  padding: 0;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-topbar {
+  padding-top: 2px;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-footer {
+  padding-bottom: 0;
+}
+
 .dashboard-canvas {
   width: min(1180px, 100%);
   margin: 0 auto;
