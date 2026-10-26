@@ -285,10 +285,6 @@ function DashboardProgressChart({ progressData, todayValue }: {
 }) {
   const { locale, text } = useTaskboardI18n();
   const [progressHoverIndex, setProgressHoverIndex] = useState<number | null>(null);
-  const historySpan = Math.max(
-    DAY_MS,
-    todayValue - progressData.points[0].timestamp,
-  );
   // History always keeps 78% of the width; the rest is a forecast window of at
   // least two weeks so the axis stays legible for short-lived projects.
   const forecastSpan = Math.max(
@@ -304,9 +300,10 @@ function DashboardProgressChart({ progressData, todayValue }: {
     const top = 28;
     const bottom = 227;
     const historyStartValue = progressData.points[0].timestamp;
+    const historyRange = Math.max(DAY_MS, todayValue - historyStartValue);
     const currentX = left + (right - left) * 0.78;
     const x = (value: number) => (value <= todayValue
-      ? left + (currentX - left) * ((value - historyStartValue) / (todayValue - historyStartValue))
+      ? left + (currentX - left) * ((value - historyStartValue) / historyRange)
       : currentX + (right - currentX) * ((value - todayValue) / forecastSpan));
     const valueMaximum = Math.max(1, progressData.scope);
     const y = (value: number) => bottom - (value / valueMaximum) * (bottom - top);
