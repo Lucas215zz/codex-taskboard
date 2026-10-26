@@ -148,8 +148,9 @@ async function host(t, { tasks = [todo("448")], existing = true } = {}) {
     let payload;
     if (pathname.startsWith("/api/tasks?")) {
       assert.equal(method, "GET");
-      assert.ok(pathname.endsWith("&status=todo"));
-      payload = { tasks: tasks.filter((task) => task.status === "todo") };
+      const status = new URL(`http://taskboard.test${pathname}`).searchParams.get("status");
+      assert.ok(status === "todo" || status === "in_progress", pathname);
+      payload = { tasks: tasks.filter((task) => task.status === status) };
     } else {
       const [, , , id, action] = pathname.split("/");
       const task = tasks.find((candidate) => candidate.id === decodeURIComponent(id));

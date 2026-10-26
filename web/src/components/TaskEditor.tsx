@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
+import { ApiError } from "../api";
 import {
   taskPriorityLabel,
   taskStatusLabel,
@@ -399,9 +400,14 @@ export function TaskEditor({
         requestAnimationFrame(() => titleRef.current?.focus());
       }
     } catch (caught) {
-      setError(caught instanceof Error
-        ? caught.message
-        : ["无法保存这个议题。", "Could not save this issue."]);
+      setError(caught instanceof ApiError && caught.code === "PROJECT_BUSY"
+        ? [
+          "该项目已有进行中的议题，请先处理完再开始新的议题。",
+          "This project already has an issue in progress. Finish it before starting another.",
+        ]
+        : caught instanceof Error
+          ? caught.message
+          : ["无法保存这个议题。", "Could not save this issue."]);
     } finally {
       setSaving(false);
     }
