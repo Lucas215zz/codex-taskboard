@@ -212,6 +212,16 @@
   align-items: start;
 }
 
+/* ---------- embedded agent overview (merged overview page) ---------- */
+
+.dash-projects-panel {
+  min-width: 0;
+}
+
+.dash-projects-panel > .agent-overview {
+  width: 100%;
+}
+
 .dash-grid .dash-split-card.dash-card {
   grid-column: 1 / -1;
 }

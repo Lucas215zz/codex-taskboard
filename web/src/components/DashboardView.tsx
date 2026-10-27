@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 import "./DashboardView.css";
 import dueDoneIcon from "../assets/figma-taskboard/dashboard-due-done.svg";
@@ -20,6 +21,7 @@ import { TaskConversationMenu } from "./TaskConversationMenu";
 interface DashboardViewProps {
   projectId: string;
   projectCreatedAt: string | null;
+  projectsPanel?: ReactNode;
   isAllProjects: boolean;
   tasks: Task[];
   presentations: Record<string, TaskCardPresentation>;
@@ -444,6 +446,7 @@ function DashboardProgressChart({ progressData, todayValue }: {
 export function DashboardView({
   projectId,
   projectCreatedAt,
+  projectsPanel,
   isAllProjects,
   tasks,
   presentations,
@@ -736,6 +739,12 @@ export function DashboardView({
           );
         })}
       </div>
+
+      {projectsPanel ? (
+        <div className="dash-projects-panel">
+          {projectsPanel}
+        </div>
+      ) : null}
 
       <div className="dash-grid">
         <DashboardProgressChart progressData={progressData} todayValue={todayValue} />

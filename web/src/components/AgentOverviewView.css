@@ -941,6 +941,50 @@
   color: var(--text-primary);
 }
 
+/* Composed inside the single overview page: the page owns scrolling and
+   background, so this becomes a plain column of content. */
+.agent-overview.dashboard.is-embedded {
+  overflow: visible;
+  background: transparent;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-canvas {
+  width: 100%;
+  padding: 0;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-topbar {
+  padding: 0 0 14px;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-footer {
+  padding-bottom: 0;
+}
+
+/* The workspace header duplicates today's pulse row; a compact strip keeps
+   identity and controls without a second banner. */
+.agent-overview.dashboard.is-embedded .dashboard-heading .org-logo {
+  display: none;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-heading .org-brand-name {
+  font-size: 15px;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-kpis .org-stat {
+  padding-left: 9px;
+  border-left: var(--border-hairline) solid var(--border);
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-kpis .org-stat:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-time {
+  display: none;
+}
+
 .dashboard-canvas {
   width: min(1320px, 100%);
   margin: 0 auto;
@@ -1035,6 +1079,10 @@
 
 .dashboard-focus {
   margin-top: 30px;
+}
+
+.agent-overview.dashboard.is-embedded .dashboard-focus {
+  margin-top: 16px;
 }
 
 .dashboard-section-heading {

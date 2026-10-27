@@ -11,6 +11,9 @@ const dataPath = path.join(dataDirectory, "database.json");
 const host = process.env.TOKEN_RANKING_HOST ?? "127.0.0.1";
 const port = Number(process.env.TOKEN_RANKING_PORT ?? 3090);
 const maxBodyBytes = 2 * 1024 * 1024;
+// One account can be connected from several machines. Every login/connect issues
+// a new token, so keep a generous history instead of evicting older machines.
+const MAX_TOKENS_PER_USER = 200;
 
 let database = null;
 let writeQueue = Promise.resolve();
@@ -113,7 +116,7 @@ function issueToken(user) {
   const token = randomBytes(32).toString("base64url");
   user.tokens = Array.isArray(user.tokens) ? user.tokens : [];
   user.tokens.push({ hash: tokenHash(token), createdAt: now() });
-  user.tokens = user.tokens.slice(-10);
+  user.tokens = user.tokens.slice(-MAX_TOKENS_PER_USER);
   return token;
 }
 

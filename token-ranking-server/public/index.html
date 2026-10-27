@@ -3,119 +3,1773 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Token 消耗排行榜</title>
+  <meta name="theme-color" content="#0b0d11">
+  <meta name="description" content="把看不见的 Token 消耗，变成看得见的战绩。Codex 思考力排行榜。">
+  <meta property="og:title" content="Token 消耗排行榜 · 你的每一次思考都在发光">
+  <meta property="og:description" content="把看不见的 Token 消耗，变成看得见的战绩。">
+  <title>Token 消耗排行榜 · 思考力榜单</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230b0d11'/%3E%3Ccircle cx='32' cy='32' r='15' fill='none' stroke='%23ffd166' stroke-width='5'/%3E%3Cpath d='M32 21v22M26 27h9a5 5 0 010 10h-9' stroke='%23ffd166' stroke-width='4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
   <style>
-    :root { color-scheme: light; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; background: #f4f6f8; }
+    :root {
+      color-scheme: dark;
+      --ink: #f7f3e9;
+      --muted: #a5a6b2;
+      --faint: #7a7c88;
+      --gold: #ffd166;
+      --mint: #6ee7c8;
+      --violet: #b79bff;
+      --line: rgba(255, 255, 255, 0.1);
+      --line-strong: rgba(255, 255, 255, 0.18);
+      --cache: #3fa89a;
+      --input: #70c8e8;
+      --output: #ffd166;
+      --reason: #b79bff;
+      --font-body: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-display: "Iowan Old Style", "Palatino Linotype", "Songti SC", "Noto Serif SC", "SimSun", serif;
+      --font-mono: "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    }
+
     * { box-sizing: border-box; }
-    body { margin: 0; }
-    main { width: min(960px, calc(100% - 32px)); margin: 40px auto; }
-    header { display: flex; justify-content: space-between; align-items: end; gap: 20px; margin-bottom: 24px; }
-    h1 { margin: 0; font-size: 28px; }
-    p { color: #667085; }
-    section { background: white; border: 1px solid #dfe4ea; border-radius: 8px; padding: 20px; margin-top: 16px; }
-    form { display: grid; gap: 10px; max-width: 420px; }
-    input, button { min-height: 38px; border: 1px solid #c8d0da; border-radius: 6px; padding: 0 11px; font: inherit; }
-    button { cursor: pointer; background: #172033; color: white; border-color: #172033; }
-    button.secondary { background: white; color: #172033; }
-    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .muted { color: #667085; font-size: 14px; }
-    .hidden { display: none; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; padding: 12px 8px; border-bottom: 1px solid #edf0f3; }
-    th:last-child, td:last-child { text-align: right; }
-    .error { color: #b42318; min-height: 20px; }
+    [hidden] { display: none !important; }
+    html { scroll-behavior: smooth; }
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      background: #0b0d11;
+      color: var(--ink);
+      font-family: var(--font-body);
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -2;
+      background:
+        radial-gradient(900px 640px at 88% -8%, rgba(255, 181, 95, 0.17), transparent 62%),
+        radial-gradient(760px 580px at -4% 14%, rgba(148, 119, 255, 0.15), transparent 66%),
+        radial-gradient(900px 720px at 52% 112%, rgba(63, 168, 154, 0.1), transparent 68%),
+        #0b0d11;
+    }
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      opacity: 0.035;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    body.modal-open { overflow: hidden; }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    a { color: inherit; }
+    h1, h2, h3, p { margin: 0; }
+    ::selection { background: rgba(255, 209, 102, 0.3); color: #fff; }
+    :focus-visible { outline: 2px solid var(--gold); outline-offset: 3px; }
+
+    /* ---------- shell ---------- */
+    .site-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      width: min(1180px, 100%);
+      margin: 0 auto;
+      padding: 24px 24px 0;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      text-decoration: none;
+    }
+    .brand-mark {
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      background: linear-gradient(145deg, #ffe7a1, var(--gold) 52%, #ff9d63);
+      color: #1b1409;
+      box-shadow: 0 10px 30px rgba(255, 181, 95, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+    }
+    .brand-mark svg { width: 22px; height: 22px; }
+    .brand-copy { display: grid; gap: 1px; min-width: 0; }
+    .brand-copy strong {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.17em;
+      white-space: nowrap;
+    }
+    .brand-copy small { color: var(--faint); font-size: 10px; letter-spacing: 0.12em; }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    .live-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 0 12px;
+      border: 1px solid rgba(110, 231, 200, 0.18);
+      border-radius: 999px;
+      background: rgba(110, 231, 200, 0.055);
+      color: #b8f2e2;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--mint);
+      box-shadow: 0 0 0 4px rgba(110, 231, 200, 0.1);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+    .account-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 220px;
+      min-height: 40px;
+      padding: 6px 13px 6px 7px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.045);
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 140ms ease, background 140ms ease;
+    }
+    .account-chip.is-guest { padding: 0 16px; color: var(--muted); }
+    .account-chip:hover { border-color: var(--line-strong); background: rgba(255, 255, 255, 0.075); }
+    .account-chip > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .page { width: min(1180px, 100%); margin: 0 auto; padding: 0 24px 64px; }
+
+    /* ---------- buttons ---------- */
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 46px;
+      padding: 0 20px;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      font-size: 14px;
+      font-weight: 650;
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background 140ms ease;
+    }
+    .button:hover { transform: translateY(-1px); }
+    .button:active { transform: translateY(0); }
+    .button:disabled { cursor: wait; opacity: 0.65; transform: none; }
+    .button.primary {
+      background: linear-gradient(135deg, #ffe9a9, var(--gold) 45%, #ffad68);
+      color: #1a1308;
+      box-shadow: 0 14px 34px rgba(255, 176, 90, 0.18);
+    }
+    .button.primary:hover { box-shadow: 0 18px 42px rgba(255, 176, 90, 0.27); }
+    .button.ghost {
+      border-color: var(--line);
+      background: rgba(255, 255, 255, 0.035);
+      color: var(--ink);
+    }
+    .button.ghost:hover { border-color: var(--line-strong); background: rgba(255, 255, 255, 0.065); }
+    .button.small { min-height: 38px; padding: 0 15px; font-size: 12px; }
+    .button svg { width: 16px; height: 16px; }
+    .spin svg { animation: spin 0.9s linear infinite; }
+
+    /* ---------- hero ---------- */
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
+      align-items: center;
+      gap: clamp(34px, 6vw, 76px);
+      padding: clamp(52px, 8vw, 94px) 0 30px;
+    }
+    .hero-copy { animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 22px;
+      color: var(--muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+    .eyebrow .season {
+      padding: 4px 9px;
+      border: 1px solid rgba(255, 209, 102, 0.32);
+      border-radius: 999px;
+      background: rgba(255, 209, 102, 0.06);
+      color: var(--gold);
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-size: clamp(43px, 6.6vw, 78px);
+      font-weight: 600;
+      line-height: 1.06;
+      letter-spacing: -0.035em;
+      text-wrap: balance;
+    }
+    h1 em {
+      font-style: normal;
+      background: linear-gradient(100deg, #fff0bd 0%, var(--gold) 30%, #ff9f66 64%, #d9c2ff 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .lede {
+      max-width: 33em;
+      margin-top: 24px;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.85;
+    }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+    .updated {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 18px;
+      color: var(--faint);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+    .updated.is-error { color: #ffb1b4; }
+    .updated .dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+
+    /* ---------- spotlight ---------- */
+    .spotlight {
+      position: relative;
+      padding: 1px;
+      border-radius: 30px;
+      background: linear-gradient(150deg, rgba(255, 209, 102, 0.58), rgba(255, 255, 255, 0.08) 44%, rgba(183, 155, 255, 0.38));
+      box-shadow: 0 34px 100px rgba(0, 0, 0, 0.45);
+      animation: rise 0.8s 0.08s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .spotlight-inner {
+      position: relative;
+      overflow: hidden;
+      padding: 22px 24px 24px;
+      border-radius: 29px;
+      background:
+        radial-gradient(130% 100% at 18% 0%, rgba(255, 209, 102, 0.13), transparent 56%),
+        linear-gradient(160deg, #171920, #0d0f14 72%);
+    }
+    .spotlight-inner::after {
+      content: "";
+      position: absolute;
+      right: -80px;
+      bottom: -110px;
+      width: 260px;
+      height: 260px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(183, 155, 255, 0.16), transparent 66%);
+      pointer-events: none;
+    }
+    .spotlight-top { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .spotlight-live {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--gold);
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.12em;
+    }
+    .spotlight-season { color: var(--faint); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em; }
+    .orbit {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 194px;
+      height: 194px;
+      margin: 22px auto 10px;
+    }
+    .orbit::before {
+      content: "";
+      position: absolute;
+      inset: 24px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 209, 102, 0.14), transparent 68%);
+      filter: blur(8px);
+    }
+    .orbit-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: conic-gradient(from -90deg, var(--gold) var(--ring, 0%), rgba(255, 255, 255, 0.08) 0);
+      -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px));
+      mask: radial-gradient(farthest-side, transparent calc(100% - 7px), #000 calc(100% - 6px));
+    }
+    .orbit-dash {
+      position: absolute;
+      inset: 13px;
+      border: 1px dashed rgba(255, 255, 255, 0.11);
+      border-radius: 50%;
+      animation: orbit-spin 40s linear infinite;
+    }
+    .orbit-core {
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 122px;
+      height: 122px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 50%;
+      background: radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.025) 62%);
+      box-shadow: inset 0 0 42px rgba(255, 209, 102, 0.06);
+    }
+    .orbit-spark {
+      position: absolute;
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--gold);
+      box-shadow: 0 0 12px 3px rgba(255, 209, 102, 0.45);
+    }
+    .orbit-spark.s1 { top: 24px; right: 27px; }
+    .orbit-spark.s2 { bottom: 34px; left: 20px; width: 3px; height: 3px; opacity: 0.75; }
+    .spotlight-name {
+      position: relative;
+      z-index: 1;
+      overflow: hidden;
+      color: var(--ink);
+      font-family: var(--font-display);
+      font-size: 24px;
+      font-weight: 600;
+      text-align: center;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .spotlight-caption { position: relative; z-index: 1; margin-top: 6px; color: var(--muted); font-size: 12px; text-align: center; }
+    .spotlight-total {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 7px;
+      margin-top: 14px;
+      font-family: var(--font-mono);
+      font-size: clamp(31px, 4vw, 45px);
+      font-weight: 650;
+      letter-spacing: -0.055em;
+      line-height: 1;
+    }
+    .spotlight-total small { color: var(--faint); font-family: var(--font-body); font-size: 10px; font-weight: 500; letter-spacing: 0.12em; }
+    .spotlight-foot {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px 16px;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+      color: var(--faint);
+      font-size: 11px;
+    }
+    .spotlight-foot strong { color: var(--muted); font-weight: 600; }
+    .spotlight-empty { padding: 26px 0 8px; text-align: center; }
+    .orbit-question { color: var(--faint); font-family: var(--font-display); font-size: 44px; }
+    .spotlight-empty .button { margin-top: 22px; }
+
+    /* ---------- avatars ---------- */
+    .avatar {
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      font-family: var(--font-display);
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35);
+      user-select: none;
+    }
+    .avatar-2xs { width: 27px; height: 27px; font-size: 11px; }
+    .avatar-lg { width: 56px; height: 56px; font-size: 22px; }
+    .avatar-xl { width: 88px; height: 88px; font-size: 32px; }
+    .tone-0 { background: linear-gradient(135deg, #ffe6a0, #ff9e68); color: #291a0a; }
+    .tone-1 { background: linear-gradient(135deg, #b9f4e5, #46b9a8); color: #07231e; }
+    .tone-2 { background: linear-gradient(135deg, #d6c7ff, #8d73ea); color: #1b1237; }
+    .tone-3 { background: linear-gradient(135deg, #c3ebff, #5e9fe7); color: #0c2037; }
+    .tone-4 { background: linear-gradient(135deg, #ffd0d6, #f2758b); color: #360f18; }
+    .tone-5 { background: linear-gradient(135deg, #e9f3a7, #9ebd3e); color: #202807; }
+
+    /* ---------- stats ---------- */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.025);
+      overflow: hidden;
+      animation: rise 0.8s 0.14s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .stat { min-width: 0; padding: 22px 24px; border-right: 1px solid var(--line); }
+    .stat:last-child { border-right: 0; }
+    .stat-label { display: block; margin-bottom: 9px; color: var(--faint); font-size: 11px; letter-spacing: 0.08em; }
+    .stat-value {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: clamp(22px, 3vw, 33px);
+      font-weight: 650;
+      letter-spacing: -0.055em;
+      white-space: nowrap;
+    }
+    .stat-value small { color: var(--faint); font-family: var(--font-body); font-size: 10px; font-weight: 500; letter-spacing: 0.04em; }
+
+    /* ---------- section headings ---------- */
+    .section-head {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 20px;
+      margin: 62px 0 22px;
+    }
+    .section-kicker {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      margin-bottom: 8px;
+      color: var(--gold);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.2em;
+    }
+    .section-kicker::before { content: ""; width: 20px; height: 1px; background: currentColor; opacity: 0.65; }
+    .section-head h2 {
+      font-family: var(--font-display);
+      font-size: clamp(28px, 3.5vw, 40px);
+      font-weight: 600;
+      letter-spacing: -0.025em;
+    }
+    .section-sub { max-width: 24em; color: var(--faint); font-size: 12px; line-height: 1.7; text-align: right; }
+
+    /* ---------- podium ---------- */
+    .podium {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: end;
+      gap: 14px;
+    }
+    .podium-card {
+      --podium-accent: rgba(255, 255, 255, 0.35);
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-height: 238px;
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: linear-gradient(165deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.018));
+      overflow: hidden;
+      animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .podium-card.place-1 {
+      --podium-accent: var(--gold);
+      order: 2;
+      min-height: 286px;
+      border-color: rgba(255, 209, 102, 0.33);
+      background:
+        radial-gradient(100% 80% at 50% 0%, rgba(255, 209, 102, 0.18), transparent 65%),
+        linear-gradient(165deg, rgba(255, 209, 102, 0.1), rgba(255, 255, 255, 0.02));
+      box-shadow: 0 24px 80px rgba(255, 176, 90, 0.11);
+    }
+    .podium-card.place-2 { --podium-accent: #c9d4e5; order: 1; animation-delay: 0.05s; }
+    .podium-card.place-3 { --podium-accent: #e7ad85; order: 3; animation-delay: 0.1s; }
+    .podium-card.is-empty { border-style: dashed; background: rgba(255, 255, 255, 0.018); box-shadow: none; }
+    .podium-card.is-unlit .podium-score { color: var(--muted); }
+    .podium-ribbon {
+      position: relative;
+      z-index: 1;
+      align-self: flex-start;
+      padding: 4px 9px;
+      border: 1px solid color-mix(in srgb, var(--podium-accent) 36%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--podium-accent) 8%, transparent);
+      color: color-mix(in srgb, var(--podium-accent) 85%, white);
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.1em;
+    }
+    .podium-medal {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border: 1px solid color-mix(in srgb, var(--podium-accent) 25%, transparent);
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--podium-accent) 7%, transparent);
+      color: var(--podium-accent);
+    }
+    .podium-medal svg { width: 17px; height: 17px; }
+    .podium-person {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      margin-top: 28px;
+    }
+    .podium-person-copy { display: grid; gap: 4px; min-width: 0; }
+    .podium-person strong { overflow: hidden; font-size: 17px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .podium-person span { color: var(--faint); font-size: 10px; }
+    .podium-score {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      align-items: baseline;
+      gap: 5px;
+      margin-top: auto;
+      padding-top: 24px;
+      font-family: var(--font-mono);
+      font-size: 34px;
+      font-weight: 650;
+      letter-spacing: -0.055em;
+      line-height: 1;
+    }
+    .podium-score small { color: var(--faint); font-family: var(--font-body); font-size: 10px; font-weight: 500; letter-spacing: 0.06em; }
+    .podium-score.is-waiting { font-family: var(--font-display); font-size: 29px; letter-spacing: -0.02em; }
+    .podium-meta { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 10px; color: var(--faint); font-size: 10px; }
+    .podium-watermark {
+      position: absolute;
+      right: 10px;
+      bottom: -20px;
+      color: var(--podium-accent);
+      font-family: var(--font-mono);
+      font-size: 112px;
+      font-weight: 700;
+      letter-spacing: -0.09em;
+      line-height: 1;
+      opacity: 0.075;
+      pointer-events: none;
+    }
+    .podium-empty {
+      display: grid;
+      place-items: center;
+      flex: 1;
+      align-content: center;
+      gap: 8px;
+      padding: 34px 8px 12px;
+      text-align: center;
+    }
+    .empty-ring {
+      width: 52px;
+      height: 52px;
+      margin-bottom: 4px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 255, 255, 0.04), transparent 68%);
+    }
+    .podium-empty strong { font-family: var(--font-display); font-size: 18px; font-weight: 600; }
+    .podium-empty p { max-width: 12em; color: var(--faint); font-size: 11px; line-height: 1.6; }
+
+    /* ---------- leaderboard list ---------- */
+    .leaderboard-panel {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: rgba(255, 255, 255, 0.025);
+      overflow: hidden;
+    }
+    .list-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px 24px;
+      flex-wrap: wrap;
+      padding: 17px 22px;
+      border-bottom: 1px solid var(--line);
+    }
+    .list-title { font-family: var(--font-display); font-size: 19px; font-weight: 600; }
+    .list-title span { margin-left: 9px; color: var(--faint); font-family: var(--font-body); font-size: 11px; font-weight: 400; }
+    .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 14px; color: var(--faint); font-size: 10px; }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .legend i { width: 7px; height: 7px; border-radius: 2px; }
+    .legend .cache { background: var(--cache); }
+    .legend .input { background: var(--input); }
+    .legend .output { background: var(--output); }
+    .legend .reason { background: var(--reason); }
+    .ranking-list { display: grid; }
+    .rank-row {
+      display: grid;
+      grid-template-columns: 46px minmax(0, 1.1fr) minmax(130px, 0.9fr) 116px;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 22px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.055);
+      transition: background 120ms ease;
+    }
+    .rank-row:last-child { border-bottom: 0; }
+    .rank-row:hover { background: rgba(255, 255, 255, 0.03); }
+    .rank-row.is-me {
+      background: linear-gradient(90deg, rgba(255, 209, 102, 0.085), transparent 72%);
+      box-shadow: inset 3px 0 0 var(--gold);
+    }
+    .rank-row.is-zero { opacity: 0.72; }
+    .rank-no { color: var(--faint); font-family: var(--font-mono); font-size: 14px; font-variant-numeric: tabular-nums; }
+    .rank-user { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .rank-name { display: grid; gap: 4px; min-width: 0; }
+    .name-line { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
+    .name-line strong { overflow: hidden; font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .you-badge {
+      padding: 2px 6px;
+      border: 1px solid rgba(255, 209, 102, 0.3);
+      border-radius: 999px;
+      background: rgba(255, 209, 102, 0.1);
+      color: var(--gold);
+      font-size: 9px;
+      font-weight: 650;
+      letter-spacing: 0.08em;
+    }
+    .tier-chip { padding: 2px 7px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 9px; white-space: nowrap; }
+    .model-line { overflow: hidden; color: var(--faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .rank-bar { min-width: 0; }
+    .mini-bar { display: flex; height: 7px; border-radius: 999px; background: rgba(255, 255, 255, 0.055); overflow: hidden; }
+    .mini-fill { display: flex; flex: 0 0 auto; height: 100%; border-radius: inherit; overflow: hidden; transition: width 600ms cubic-bezier(0.22, 1, 0.36, 1); }
+    .mini-fill i { display: block; flex: 0 0 auto; height: 100%; }
+    .mini-fill .cache { background: var(--cache); }
+    .mini-fill .input { background: var(--input); }
+    .mini-fill .output { background: var(--output); }
+    .mini-fill .reason { background: var(--reason); }
+    .bar-caption { margin-top: 6px; color: var(--faint); font-size: 9px; font-variant-numeric: tabular-nums; }
+    .rank-total { text-align: right; font-family: var(--font-mono); font-size: 18px; font-weight: 650; letter-spacing: -0.045em; white-space: nowrap; }
+    .rank-total small { display: block; margin-top: 3px; color: var(--faint); font-family: var(--font-body); font-size: 9px; font-weight: 400; letter-spacing: 0.04em; }
+    .rank-total.is-waiting { color: var(--muted); font-family: var(--font-display); font-size: 15px; font-weight: 600; letter-spacing: 0; }
+    .list-empty { display: grid; place-items: center; gap: 8px; padding: 56px 24px; text-align: center; }
+    .list-empty strong { font-family: var(--font-display); font-size: 20px; font-weight: 600; }
+    .list-empty p { max-width: 30em; color: var(--faint); font-size: 11px; line-height: 1.7; }
+    .state-block { display: grid; place-items: center; gap: 10px; padding: 46px 24px; text-align: center; }
+    .state-block p { max-width: 32em; color: var(--muted); font-size: 12px; line-height: 1.7; }
+    .state-mark {
+      display: grid;
+      place-items: center;
+      width: 40px;
+      height: 40px;
+      border: 1px solid rgba(255, 177, 180, 0.3);
+      border-radius: 50%;
+      background: rgba(255, 177, 180, 0.07);
+      color: #ffb1b4;
+      font-family: var(--font-display);
+      font-size: 20px;
+    }
+    .skeleton { position: relative; overflow: hidden; background: rgba(255, 255, 255, 0.055); }
+    .skeleton::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+      transform: translateX(-100%);
+      animation: shimmer 1.5s infinite;
+    }
+    .sk-line { height: 10px; border-radius: 999px; }
+    .sk-line.w40 { width: 40%; }
+    .sk-line.w60 { width: 60%; }
+    .sk-line.w75 { width: 75%; }
+    .sk-avatar { width: 38px; height: 38px; border-radius: 50%; }
+    .skeleton-podium { min-height: 238px; }
+    .skeleton-row { display: flex; align-items: center; gap: 14px; padding: 20px 22px; border-bottom: 1px solid rgba(255, 255, 255, 0.055); }
+    .skeleton-row:last-child { border-bottom: 0; }
+    .skeleton-row-copy { display: grid; flex: 1; gap: 8px; }
+    .spotlight-skeleton { display: grid; place-items: center; gap: 16px; min-height: 390px; }
+    .spotlight-skeleton .sk-avatar { width: 112px; height: 112px; }
+
+    /* ---------- my score ---------- */
+    .my-section {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+      gap: 14px;
+      margin-top: 14px;
+    }
+    .my-card, .tier-panel {
+      position: relative;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.03);
+      overflow: hidden;
+    }
+    .my-card { padding: 26px; }
+    .my-card.is-guest {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      min-height: 240px;
+      background:
+        radial-gradient(110% 110% at 100% 0%, rgba(183, 155, 255, 0.14), transparent 58%),
+        rgba(255, 255, 255, 0.03);
+    }
+    .my-card.is-me {
+      background:
+        radial-gradient(110% 100% at 100% 0%, rgba(255, 209, 102, 0.12), transparent 60%),
+        rgba(255, 255, 255, 0.03);
+    }
+    .my-kicker { color: var(--gold); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em; }
+    .my-card h3 {
+      margin-top: 10px;
+      font-family: var(--font-display);
+      font-size: clamp(26px, 3vw, 34px);
+      font-weight: 600;
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+    }
+    .my-card p.my-copy { max-width: 28em; margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.75; }
+    .my-cta { margin-top: 20px; }
+    .guest-orbit {
+      position: relative;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 150px;
+      height: 150px;
+      border: 1px dashed rgba(255, 255, 255, 0.12);
+      border-radius: 50%;
+    }
+    .guest-orbit::before, .guest-orbit::after { content: ""; position: absolute; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 50%; }
+    .guest-orbit::before { inset: 18px; }
+    .guest-orbit::after { inset: 42px; background: rgba(255, 255, 255, 0.025); }
+    .guest-orbit span { position: relative; z-index: 1; color: var(--faint); font-family: var(--font-display); font-size: 42px; }
+    .my-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .my-head-copy { display: grid; gap: 5px; min-width: 0; }
+    .my-head h3 { margin: 0; overflow: hidden; font-size: 26px; text-overflow: ellipsis; white-space: nowrap; }
+    .my-head p { color: var(--faint); font-size: 11px; }
+    .my-rank-pill {
+      margin-left: auto;
+      padding: 7px 12px;
+      border: 1px solid rgba(255, 209, 102, 0.3);
+      border-radius: 999px;
+      background: rgba(255, 209, 102, 0.08);
+      color: var(--gold);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .my-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 1px;
+      margin-top: 24px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: var(--line);
+      overflow: hidden;
+    }
+    .my-metric { min-width: 0; padding: 15px 16px; background: #111319; }
+    .my-metric span { display: block; margin-bottom: 7px; color: var(--faint); font-size: 10px; }
+    .my-metric strong { display: block; overflow: hidden; font-family: var(--font-mono); font-size: 21px; font-weight: 650; letter-spacing: -0.05em; text-overflow: ellipsis; white-space: nowrap; }
+    .my-progress { margin-top: 20px; }
+    .my-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; color: var(--faint); font-size: 11px; }
+    .my-progress-head strong { color: var(--muted); font-weight: 600; text-align: right; }
+    .progress-track { height: 6px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+    .progress-track i {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #ffad68, var(--gold), #fff0bd);
+      box-shadow: 0 0 18px rgba(255, 209, 102, 0.4);
+      transition: width 700ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .badges { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 18px; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.025);
+      color: var(--muted);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+    .badge::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--badge-color, var(--faint)); box-shadow: 0 0 8px var(--badge-color, var(--faint)); }
+    .badge.gold { --badge-color: var(--gold); }
+    .badge.mint { --badge-color: var(--mint); }
+    .badge.violet { --badge-color: var(--violet); }
+    .my-model { margin-top: 14px; color: var(--faint); font-size: 10px; }
+    .my-model code { color: var(--muted); font-family: var(--font-mono); }
+    .tier-panel { padding: 24px; }
+    .tier-panel h3 { font-family: var(--font-display); font-size: 20px; font-weight: 600; }
+    .tier-panel > p { margin-top: 6px; color: var(--faint); font-size: 11px; line-height: 1.6; }
+    .tier-list { display: grid; gap: 13px; margin: 20px 0 0; padding: 0; list-style: none; }
+    .tier-item { display: grid; grid-template-columns: 9px minmax(0, 1fr); gap: 11px; align-items: start; }
+    .tier-item i { width: 7px; height: 7px; margin-top: 5px; border-radius: 50%; background: var(--tier-color, var(--faint)); box-shadow: 0 0 10px color-mix(in srgb, var(--tier-color, var(--faint)) 60%, transparent); }
+    .tier-item strong { display: block; font-size: 12px; font-weight: 600; }
+    .tier-item span { display: block; margin-top: 2px; color: var(--faint); font-size: 10px; font-variant-numeric: tabular-nums; }
+
+    /* ---------- footer ---------- */
+    .site-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px 24px;
+      margin-top: 46px;
+      padding-top: 22px;
+      border-top: 1px solid var(--line);
+      color: var(--faint);
+      font-size: 10px;
+      line-height: 1.6;
+    }
+    .site-footer strong { color: var(--muted); font-weight: 600; }
+
+    /* ---------- auth modal ---------- */
+    .modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px; }
+    .modal-backdrop { position: absolute; inset: 0; background: rgba(3, 5, 8, 0.72); backdrop-filter: blur(8px); }
+    .modal-panel {
+      position: relative;
+      width: min(460px, 100%);
+      max-height: calc(100vh - 40px);
+      padding: 30px;
+      border: 1px solid rgba(255, 255, 255, 0.13);
+      border-radius: 26px;
+      background:
+        radial-gradient(100% 80% at 100% 0%, rgba(255, 209, 102, 0.1), transparent 55%),
+        linear-gradient(160deg, #191b22, #0f1116 72%);
+      box-shadow: 0 40px 120px rgba(0, 0, 0, 0.65);
+      overflow-y: auto;
+      animation: modal-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    .modal-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      display: grid;
+      place-items: center;
+      width: 36px;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+      font-size: 19px;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .modal-close:hover { border-color: var(--line-strong); color: var(--ink); }
+    .modal-kicker { color: var(--gold); font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.18em; }
+    .modal-head h2 {
+      margin-top: 10px;
+      padding-right: 34px;
+      font-family: var(--font-display);
+      font-size: 30px;
+      font-weight: 600;
+      line-height: 1.18;
+      letter-spacing: -0.025em;
+    }
+    .modal-head p { margin-top: 9px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+    .auth-tabs {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      margin: 22px 0 18px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+    .auth-tabs button { min-height: 38px; border: 0; border-radius: 9px; background: transparent; color: var(--faint); font-size: 12px; font-weight: 600; cursor: pointer; }
+    .auth-tabs button.is-active { background: rgba(255, 255, 255, 0.09); color: var(--ink); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset; }
+    .auth-form { display: grid; gap: 13px; }
+    .field { display: grid; gap: 7px; color: var(--muted); font-size: 11px; }
+    .field input {
+      width: 100%;
+      height: 46px;
+      padding: 0 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--ink);
+      font-size: 15px;
+      transition: border-color 120ms ease, background 120ms ease;
+    }
+    .field input::placeholder { color: #747681; }
+    .field input:hover { border-color: var(--line-strong); }
+    .field input:focus { border-color: rgba(255, 209, 102, 0.55); background: rgba(255, 255, 255, 0.06); outline: none; box-shadow: 0 0 0 3px rgba(255, 209, 102, 0.08); }
+    .auth-submit { width: 100%; margin-top: 4px; }
+    .error { min-height: 16px; color: #ffb1b4; font-size: 11px; line-height: 1.45; }
+    .auth-note { margin-top: 14px; color: var(--faint); font-size: 10px; line-height: 1.65; }
+    .signed-in-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 22px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+    .signed-in-copy { display: grid; gap: 4px; min-width: 0; }
+    .signed-in-copy strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+    .signed-in-copy span { color: var(--faint); font-size: 10px; }
+    .signed-in-rank { margin-left: auto; color: var(--gold); font-family: var(--font-mono); font-size: 13px; font-weight: 700; white-space: nowrap; }
+    .connect-card {
+      margin-top: 16px;
+      padding: 16px;
+      border: 1px solid rgba(255, 209, 102, 0.2);
+      border-radius: 16px;
+      background: rgba(255, 209, 102, 0.055);
+    }
+    .connect-card p { margin-bottom: 12px; color: var(--muted); font-size: 11px; line-height: 1.65; }
+    .connect-card .button { width: 100%; }
+    .connect-note { margin-top: 14px; color: var(--faint); font-size: 10px; line-height: 1.65; }
+    .signout {
+      display: block;
+      width: 100%;
+      min-height: 40px;
+      margin-top: 14px;
+      border: 0;
+      background: transparent;
+      color: var(--faint);
+      font-size: 11px;
+      text-decoration: underline;
+      text-decoration-color: rgba(255, 255, 255, 0.18);
+      text-underline-offset: 4px;
+      cursor: pointer;
+    }
+    .signout:hover { color: var(--muted); }
+
+    /* ---------- animation ---------- */
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(16px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes modal-in {
+      from { opacity: 0; transform: translateY(12px) scale(0.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes shimmer { to { transform: translateX(100%); } }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes orbit-spin { to { transform: rotate(360deg); } }
+
+    /* ---------- responsive ---------- */
+    @media (max-width: 980px) {
+      .hero { grid-template-columns: 1fr; gap: 36px; padding-top: 54px; }
+      .hero-copy { max-width: 720px; }
+      .spotlight { width: min(460px, 100%); margin: 0 auto; }
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .stat:nth-child(2) { border-right: 0; }
+      .stat:nth-child(-n + 2) { border-bottom: 1px solid var(--line); }
+      .my-section { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 740px) {
+      .site-header { padding: 18px 18px 0; }
+      .page { padding: 0 18px 52px; }
+      .live-chip { display: none; }
+      .brand-copy small { display: none; }
+      .section-head { align-items: flex-start; flex-direction: column; gap: 8px; margin-top: 48px; }
+      .section-sub { max-width: 34em; text-align: left; }
+      .podium { grid-template-columns: 1fr; align-items: stretch; }
+      .podium-card, .podium-card.place-1 { min-height: 0; }
+      .podium-card.place-1 { order: -1; }
+      .podium-card.place-2 { order: 0; }
+      .podium-card.place-3 { order: 1; }
+      .podium-score { padding-top: 18px; }
+      .rank-row {
+        grid-template-columns: 32px minmax(0, 1fr) auto;
+        grid-template-areas:
+          "no user total"
+          ". bar bar";
+        row-gap: 10px;
+        gap: 8px 12px;
+        padding: 15px 16px;
+      }
+      .rank-no { grid-area: no; align-self: start; padding-top: 11px; }
+      .rank-user { grid-area: user; }
+      .rank-bar { grid-area: bar; }
+      .rank-total { grid-area: total; font-size: 17px; }
+      .list-head { padding: 15px 16px; }
+      .legend { display: none; }
+      .my-card.is-guest { min-height: 0; padding: 24px; }
+      .guest-orbit { width: 108px; height: 108px; }
+      .guest-orbit span { font-size: 32px; }
+      .my-card { padding: 22px; }
+      .my-metrics { grid-template-columns: 1fr 1fr; }
+      .my-metric:last-child { grid-column: 1 / -1; }
+    }
+    @media (max-width: 520px) {
+      h1 { font-size: clamp(40px, 12vw, 54px); }
+      .lede { font-size: 14px; }
+      .hero-actions .button { flex: 1 1 100%; }
+      .updated { font-size: 10px; }
+      .spotlight-inner { padding: 20px 18px 22px; }
+      .orbit { width: 168px; height: 168px; }
+      .orbit-core { width: 108px; height: 108px; }
+      .avatar-xl { width: 78px; height: 78px; font-size: 28px; }
+      .stat { padding: 18px; }
+      .stat-value { font-size: 23px; }
+      .brand-copy strong { font-size: 10px; letter-spacing: 0.12em; }
+      .account-chip { max-width: 170px; }
+      .my-card.is-guest { flex-direction: column; align-items: flex-start; }
+      .guest-orbit { align-self: flex-end; margin-top: -18px; }
+      .my-head h3 { font-size: 23px; }
+      .my-card h3 { font-size: 27px; }
+      .modal { padding: 12px; }
+      .modal-panel { max-height: calc(100vh - 24px); padding: 24px 20px; border-radius: 22px; }
+      .modal-head h2 { font-size: 26px; }
+      .site-footer { flex-direction: column; align-items: flex-start; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
   </style>
 </head>
 <body>
-  <main>
-    <header>
-      <div>
-        <h1>Token 消耗排行榜</h1>
-        <p>统计 Codex 官方模型和中转模型的 Token 消耗。</p>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="Token 消耗排行榜首页">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+          <circle cx="12" cy="12" r="8"></circle>
+          <path d="M12 6.8v10.4M9.2 9.6h4.2a2.4 2.4 0 0 1 0 4.8H9.2"></path>
+        </svg>
+      </span>
+      <span class="brand-copy">
+        <strong>TOKEN LEAGUE</strong>
+        <small>思考力排行榜</small>
+      </span>
+    </a>
+    <div class="header-right">
+      <a href="https://github.com/Lucas215zz/codex-taskboard" target="_blank" rel="noopener noreferrer" class="live-chip" style="text-decoration: none; color: var(--muted);">⭐ GitHub</a>
+      <span class="live-chip"><i class="live-dot" aria-hidden="true"></i>实时榜单</span>
+      <button id="account" class="account-chip is-guest" type="button" aria-label="登录或注册">登录 / 注册</button>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="season">ALL-TIME</span> CODEX TOKEN LEAGUE</p>
+        <h1 id="hero-title">每一次思考，<br><em>都在这里发光。</em></h1>
+        <p class="lede">把看不见的 Token 消耗，变成看得见的战绩。这里不比谁的模型更便宜，只记住你认真想过的每一秒。</p>
+        <div class="hero-actions">
+          <button id="hero-action" class="button primary" type="button">点亮我的战绩</button>
+          <button id="refresh" class="button ghost" type="button" aria-label="刷新排行榜">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M20 11a8 8 0 1 0-2.3 6.1"></path>
+              <path d="M20 4v7h-7"></path>
+            </svg>
+            <span>刷新榜单</span>
+          </button>
+        </div>
+        <p id="updated" class="updated" aria-live="polite"><span class="dot" aria-hidden="true"></span>正在同步榜单…</p>
       </div>
-      <div id="account" class="muted">未登录</div>
-    </header>
-    <section id="auth">
-      <div class="row">
-        <button id="show-login">登录</button>
-        <button id="show-register" class="secondary">注册</button>
+      <aside id="spotlight" class="spotlight" aria-label="当前榜首" aria-live="polite">
+        <div class="spotlight-inner">
+          <div class="spotlight-skeleton">
+            <div class="skeleton sk-avatar"></div>
+            <div class="skeleton sk-line w60"></div>
+            <div class="skeleton sk-line w40"></div>
+            <div class="skeleton sk-line w75"></div>
+          </div>
+        </div>
+      </aside>
+    </section>
+
+    <section id="stats" class="stats" aria-label="榜单总览">
+      <div class="stat"><span class="stat-label">在榜选手</span><div class="stat-value">—</div></div>
+      <div class="stat"><span class="stat-label">累计燃烧</span><div class="stat-value">—</div></div>
+      <div class="stat"><span class="stat-label">思考回合</span><div class="stat-value">—</div></div>
+      <div class="stat"><span class="stat-label">人均消耗</span><div class="stat-value">—</div></div>
+    </section>
+
+    <section aria-labelledby="podium-title">
+      <div class="section-head">
+        <div>
+          <p class="section-kicker">HALL OF FAME</p>
+          <h2 id="podium-title">此刻的高光</h2>
+        </div>
+        <p class="section-sub">名次会变，认真思考的痕迹不会。站上领奖台的人，值得被记住。</p>
       </div>
-      <form id="auth-form">
-        <input id="username" autocomplete="username" placeholder="用户名">
-        <input id="display-name" class="hidden" autocomplete="name" placeholder="显示名称">
-        <input id="password" type="password" autocomplete="current-password" placeholder="密码（至少 8 位）">
-        <button id="submit-auth" type="submit">登录</button>
-        <div id="auth-error" class="error"></div>
-      </form>
-      <div id="connect-wrap" class="hidden">
-        <p class="muted">从 Taskboard 打开此页面时，可以把当前账号连接回 Taskboard。</p>
-        <button id="connect" type="button">连接 Taskboard</button>
+      <div id="podium" class="podium" aria-live="polite">
+        <div class="podium-card place-1 skeleton skeleton-podium"></div>
+        <div class="podium-card place-2 skeleton skeleton-podium"></div>
+        <div class="podium-card place-3 skeleton skeleton-podium"></div>
+      </div>
+
+      <div class="leaderboard-panel">
+        <div class="list-head">
+          <h3 class="list-title">完整榜单<span>第 4 名起</span></h3>
+          <div class="legend" aria-label="Token 构成图例">
+            <span><i class="cache"></i>缓存</span>
+            <span><i class="input"></i>输入</span>
+            <span><i class="output"></i>输出</span>
+            <span><i class="reason"></i>推理</span>
+          </div>
+        </div>
+        <div id="ranking-body" class="ranking-list" aria-live="polite" role="list">
+          <div class="skeleton-row"><div class="skeleton sk-avatar"></div><div class="skeleton-row-copy"><div class="skeleton sk-line w40"></div><div class="skeleton sk-line w60"></div></div></div>
+          <div class="skeleton-row"><div class="skeleton sk-avatar"></div><div class="skeleton-row-copy"><div class="skeleton sk-line w40"></div><div class="skeleton sk-line w60"></div></div></div>
+          <div class="skeleton-row"><div class="skeleton sk-avatar"></div><div class="skeleton-row-copy"><div class="skeleton sk-line w40"></div><div class="skeleton sk-line w60"></div></div></div>
+        </div>
       </div>
     </section>
-    <section>
-      <div class="row">
-        <h2 style="margin:0">排行榜</h2>
-        <span class="muted">按累计 Token 排序</span>
+
+    <section class="my-section" aria-label="我的战绩与称号">
+      <div id="my-card" class="my-card is-guest">
+        <div>
+          <p class="my-kicker">YOUR SCORE</p>
+          <h3>下一个上榜的，<br>会是你吗？</h3>
+          <p class="my-copy">登录后，你的每一次调用都会留下名字。还可以把排行榜账号连接回 Taskboard。</p>
+          <button class="button primary my-cta" type="button" data-open-auth>登录 / 注册，点亮战绩</button>
+        </div>
+        <div class="guest-orbit" aria-hidden="true"><span>?</span></div>
       </div>
-      <table>
-        <thead><tr><th>排名</th><th>用户</th><th>事件数</th><th>累计 Token</th></tr></thead>
-        <tbody id="ranking-body"><tr><td colspan="4">加载中...</td></tr></tbody>
-      </table>
+      <div class="tier-panel">
+        <h3>称号怎么点亮</h3>
+        <p>累计 Token 会自动解锁称号，不需要额外申请。</p>
+        <ul class="tier-list">
+          <li class="tier-item" style="--tier-color:#ffd166"><i></i><div><strong>Token 恒星</strong><span>1 亿 Token 以上 · 亿级火力</span></div></li>
+          <li class="tier-item" style="--tier-color:#b79bff"><i></i><div><strong>上下文巨鲸</strong><span>1,000 万 Token 以上</span></div></li>
+          <li class="tier-item" style="--tier-color:#70c8e8"><i></i><div><strong>灵感火花</strong><span>100 万 Token 以上</span></div></li>
+          <li class="tier-item" style="--tier-color:#6ee7c8"><i></i><div><strong>微光新星</strong><span>留下第一条使用记录</span></div></li>
+        </ul>
+      </div>
     </section>
+
+    <footer class="site-footer">
+      <span><strong>每一次调用都算数。</strong> 数据来自 Codex 与中转模型的使用量同步。</span>
+      <span>
+        TOKEN LEAGUE · ALL-TIME
+      </span>
+    </footer>
   </main>
+
+  <div id="auth" class="modal" hidden>
+    <div class="modal-backdrop" data-close-auth></div>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+      <button class="modal-close" type="button" data-close-auth aria-label="关闭">×</button>
+      <div class="modal-head">
+        <p class="modal-kicker">JOIN THE LEAGUE</p>
+        <h2 id="auth-title">让你的 Token 有个名字</h2>
+        <p id="auth-subtitle">登录或注册后，就能收藏自己的战绩，也可以从 Taskboard 连接账号。</p>
+      </div>
+
+      <div id="auth-signed-in" hidden>
+        <div id="signed-in-body"></div>
+        <button id="signout" class="signout" type="button">退出登录</button>
+        <div id="connect-wrap" class="connect-card" hidden>
+          <p>把排行榜账号连接回 Taskboard，之后的使用量会自动同步到这里。</p>
+          <button id="connect" class="button primary" type="button">连接 Taskboard</button>
+        </div>
+        <p id="connect-note" class="connect-note" hidden>想连接 Taskboard？从 Taskboard 页眉的「看看大家用了多少 Token」入口打开本页即可。</p>
+      </div>
+
+      <div id="auth-form-wrap">
+        <div class="auth-tabs" role="tablist" aria-label="登录或注册">
+          <button id="show-login" class="is-active" type="button" role="tab" aria-selected="true">登录</button>
+          <button id="show-register" type="button" role="tab" aria-selected="false">注册</button>
+        </div>
+        <form id="auth-form" class="auth-form">
+          <label class="field">用户名
+            <input id="username" autocomplete="username" placeholder="3-32 位字母、数字或 _ . -" required>
+          </label>
+          <label id="display-name-wrap" class="field" hidden>显示名称
+            <input id="display-name" autocomplete="name" placeholder="榜单上想被记住的名字" maxlength="80">
+          </label>
+          <label class="field">密码
+            <input id="password" type="password" autocomplete="current-password" placeholder="至少 8 位" minlength="8" required>
+          </label>
+          <button id="submit-auth" class="button primary auth-submit" type="submit">登录</button>
+          <div id="auth-error" class="error" role="alert"></div>
+        </form>
+        <p class="auth-note">账号只用于记录排行榜战绩。不会有公开的邮箱、密码或其他隐私信息。</p>
+      </div>
+    </div>
+  </div>
+
   <script>
     const tokenKey = "token-ranking-token";
-    const state = { mode: "login", token: localStorage.getItem(tokenKey) || "" };
+    const state = {
+      mode: "login",
+      token: localStorage.getItem(tokenKey) || "",
+      me: null,
+      rankings: [],
+      loading: true,
+      refreshing: false,
+      error: "",
+      updatedAt: null,
+    };
     const $ = (id) => document.getElementById(id);
+    let lastFocused = null;
+
     const api = async (path, options = {}) => {
-      const headers = { ...(options.body ? { "content-type": "application/json" } : {}), ...(state.token ? { authorization: `Bearer ${state.token}` } : {}) };
+      const headers = {
+        ...(options.body ? { "content-type": "application/json" } : {}),
+        ...(state.token ? { authorization: `Bearer ${state.token}` } : {}),
+      };
       const response = await fetch(path, { ...options, headers: { ...headers, ...(options.headers || {}) } });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
       return data;
     };
-    function renderMode() {
-      $("display-name").classList.toggle("hidden", state.mode !== "register");
-      $("submit-auth").textContent = state.mode === "register" ? "注册" : "登录";
-      $("password").autocomplete = state.mode === "register" ? "new-password" : "current-password";
-    }
+
     function escapeHtml(value) {
       return String(value).replace(/[&<>"']/g, (character) => ({
         "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
       }[character]));
     }
-    async function loadAccount() {
-      const data = await api("/api/me");
-      if (data.user) {
-        $("account").textContent = `已登录：${data.user.displayName}`;
-        $("auth-form").classList.add("hidden");
-        $("show-login").classList.add("hidden");
-        $("show-register").classList.add("hidden");
-        $("connect-wrap").classList.remove("hidden");
+
+    function formatCompact(value) {
+      const number = Number(value) || 0;
+      const trim = (text) => text.replace(/\.?0+$/, "");
+      if (number >= 1e8) return `${trim((number / 1e8).toFixed(2))}亿`;
+      if (number >= 1e4) return `${trim((number / 1e4).toFixed(number >= 1e6 ? 1 : 2))}万`;
+      return number.toLocaleString("zh-CN");
+    }
+
+    function formatFull(value) {
+      return (Number(value) || 0).toLocaleString("zh-CN");
+    }
+
+    function formatPercent(value) {
+      const number = Number(value) || 0;
+      if (number > 0 && number < 0.001) return "<0.1%";
+      if (number >= 0.1) return `${Math.round(number * 100)}%`;
+      return `${(number * 100).toFixed(1)}%`;
+    }
+
+    function toneFor(seed) {
+      let hash = 0;
+      for (const character of String(seed || "")) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+      return hash % 6;
+    }
+
+    function initials(name) {
+      const value = String(name || "").trim();
+      if (!value) return "?";
+      const characters = Array.from(value);
+      return /^[A-Za-z]/.test(value)
+        ? characters.slice(0, 2).join("").toUpperCase()
+        : characters[0];
+    }
+
+    function avatar(user, size = "") {
+      return `<span class="avatar ${size ? `avatar-${size} ` : ""}tone-${toneFor(user?.id || user?.displayName)}" aria-hidden="true">${escapeHtml(initials(user?.displayName))}</span>`;
+    }
+
+    function tierFor(total) {
+      if (total >= 100_000_000) return { name: "Token 恒星", color: "gold" };
+      if (total >= 10_000_000) return { name: "上下文巨鲸", color: "violet" };
+      if (total >= 1_000_000) return { name: "灵感火花", color: "" };
+      if (total > 0) return { name: "微光新星", color: "mint" };
+      return { name: "刚加入", color: "" };
+    }
+
+    function topModel(entry) {
+      const models = Object.entries(entry?.byModel || {});
+      if (!models.length) return "还没有使用记录";
+      return models.sort((left, right) => (right[1]?.totalTokens || 0) - (left[1]?.totalTokens || 0))[0][0];
+    }
+
+    function components(entry) {
+      const input = Math.max(0, Number(entry?.inputTokens) || 0);
+      const cached = Math.min(input, Math.max(0, Number(entry?.cachedInputTokens) || 0));
+      const output = Math.max(0, Number(entry?.outputTokens) || 0);
+      const reasoning = Math.min(output, Math.max(0, Number(entry?.reasoningOutputTokens) || 0));
+      return { fresh: input - cached, cached, output: output - reasoning, reasoning };
+    }
+
+    function segmentMarkup(entry) {
+      const parts = components(entry);
+      const sum = parts.cached + parts.fresh + parts.output + parts.reasoning;
+      if (!sum) return "";
+      const width = (value) => `${(value / sum) * 100}%`;
+      return [
+        `<i class="cache" style="width:${width(parts.cached)}"></i>`,
+        `<i class="input" style="width:${width(parts.fresh)}"></i>`,
+        `<i class="output" style="width:${width(parts.output)}"></i>`,
+        `<i class="reason" style="width:${width(parts.reasoning)}"></i>`,
+      ].join("");
+    }
+
+    function barTitle(entry) {
+      const parts = components(entry);
+      const sum = parts.cached + parts.fresh + parts.output + parts.reasoning;
+      if (!sum) return "暂无 Token 记录";
+      const percent = (value) => `${((value / sum) * 100).toFixed(1)}%`;
+      return `缓存 ${percent(parts.cached)} · 输入 ${percent(parts.fresh)} · 输出 ${percent(parts.output)} · 推理 ${percent(parts.reasoning)}`;
+    }
+
+    function totalTokens() {
+      return state.rankings.reduce((sum, entry) => sum + (Number(entry.totalTokens) || 0), 0);
+    }
+
+    function totalEvents() {
+      return state.rankings.reduce((sum, entry) => sum + (Number(entry.eventCount) || 0), 0);
+    }
+
+    function myEntry() {
+      return state.me ? state.rankings.find((entry) => entry.user.id === state.me.id) || null : null;
+    }
+
+    function queryCallback() {
+      return new URLSearchParams(location.search).get("callback") || "";
+    }
+
+    function renderSpotlight() {
+      const element = $("spotlight");
+      if (state.loading) {
+        element.innerHTML = `<div class="spotlight-inner"><div class="spotlight-skeleton"><div class="skeleton sk-avatar"></div><div class="skeleton sk-line w60"></div><div class="skeleton sk-line w40"></div><div class="skeleton sk-line w75"></div></div></div>`;
+        return;
+      }
+      if (state.error && !state.rankings.length) {
+        element.innerHTML = `<div class="spotlight-inner"><div class="state-block"><span class="state-mark">!</span><p>${escapeHtml(state.error)}</p><button class="button ghost small" type="button" data-retry>再试一次</button></div></div>`;
+        return;
+      }
+      const top = state.rankings[0];
+      if (!top) {
+        element.innerHTML = `
+          <div class="spotlight-inner spotlight-empty">
+            <div class="orbit">
+              <div class="orbit-ring" style="--ring:0%"></div>
+              <div class="orbit-dash"></div>
+              <div class="orbit-core"><span class="orbit-question">?</span></div>
+            </div>
+            <p class="spotlight-name">榜单还是空的</p>
+            <p class="spotlight-caption">第一个名字，往往最容易被记住。</p>
+            <button class="button primary" type="button" data-open-auth>成为第一位</button>
+          </div>`;
+        return;
+      }
+      const allTokens = totalTokens();
+      const share = allTokens ? top.totalTokens / allTokens : 0;
+      const isMe = state.me && state.me.id === top.user.id;
+      const tier = tierFor(top.totalTokens);
+      element.innerHTML = `
+        <div class="spotlight-inner">
+          <div class="spotlight-top">
+            <span class="spotlight-live"><i class="live-dot" aria-hidden="true"></i>此刻榜首</span>
+            <span class="spotlight-season">ALL-TIME</span>
+          </div>
+          <div class="orbit">
+            <div class="orbit-ring" style="--ring:${Math.max(share * 100, top.totalTokens ? 7 : 0)}%"></div>
+            <div class="orbit-dash"></div>
+            <span class="orbit-spark s1" aria-hidden="true"></span>
+            <span class="orbit-spark s2" aria-hidden="true"></span>
+            <div class="orbit-core">${avatar(top.user, "xl")}</div>
+          </div>
+          <p class="spotlight-name">${escapeHtml(top.user.displayName)}</p>
+          <p class="spotlight-caption">${isMe ? "你正站在榜首。保持燃烧。" : top.totalTokens ? `以 ${formatCompact(top.totalTokens)} Token 领跑全场` : "第一位到场的人，等你点亮第一束光。"}</p>
+          <div class="spotlight-total">${formatCompact(top.totalTokens)}<small>累计 TOKEN</small></div>
+          <div class="spotlight-foot">
+            <span><strong>${formatFull(top.eventCount)}</strong> 回合</span>
+            <span><strong>${formatPercent(share)}</strong> 全场占比</span>
+            <span>${escapeHtml(tier.name)}</span>
+          </div>
+        </div>`;
+    }
+
+    function renderStats() {
+      const element = $("stats");
+      if (state.loading || (state.error && !state.rankings.length)) {
+        element.innerHTML = `
+          <div class="stat"><span class="stat-label">在榜选手</span><div class="stat-value">—</div></div>
+          <div class="stat"><span class="stat-label">累计燃烧</span><div class="stat-value">—</div></div>
+          <div class="stat"><span class="stat-label">思考回合</span><div class="stat-value">—</div></div>
+          <div class="stat"><span class="stat-label">人均消耗</span><div class="stat-value">—</div></div>`;
+        return;
+      }
+      const participants = state.rankings.length;
+      const tokens = totalTokens();
+      const events = totalEvents();
+      const average = participants ? Math.round(tokens / participants) : 0;
+      element.innerHTML = `
+        <div class="stat"><span class="stat-label">在榜选手</span><div class="stat-value">${formatFull(participants)}<small>位</small></div></div>
+        <div class="stat"><span class="stat-label">累计燃烧</span><div class="stat-value">${formatCompact(tokens)}<small>TOKEN</small></div></div>
+        <div class="stat"><span class="stat-label">思考回合</span><div class="stat-value">${formatFull(events)}<small>回合</small></div></div>
+        <div class="stat"><span class="stat-label">人均消耗</span><div class="stat-value">${formatCompact(average)}<small>TOKEN</small></div></div>`;
+    }
+
+    function podiumCard(entry, place) {
+      const labels = ["燃王", "追光者", "星火"];
+      const icons = [
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M4 8l4 3 4-6 4 6 4-3-2 9H6L4 8Z"></path><path d="M7 20h10"></path></svg>`,
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="9" r="4.2"></circle><path d="M8.5 12.5 7 21l5-2.6L17 21l-1.5-8.5"></path></svg>`,
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="m12 3 2.5 6.1 6.5.5-5 4.3 1.5 6.4-5.5-3.3-5.5 3.3L8 13.9 3 9.6l6.5-.5L12 3Z"></path></svg>`,
+      ];
+      if (!entry) {
+        const copies = ["下一个名字，会是你吗？", "亚军席位空着，等你来坐。", "季军席位空着，等你来坐。"];
+        return `
+          <article class="podium-card place-${place} is-empty">
+            <span class="podium-watermark" aria-hidden="true">0${place}</span>
+            <div class="podium-empty"><span class="empty-ring" aria-hidden="true"></span><strong>虚位以待</strong><p>${copies[place - 1]}</p></div>
+          </article>`;
+      }
+      const allTokens = totalTokens();
+      const share = allTokens ? entry.totalTokens / allTokens : 0;
+      const tier = tierFor(entry.totalTokens);
+      const meta = entry.totalTokens
+        ? `<span>${formatFull(entry.eventCount)} 回合</span><span>占全场 ${formatPercent(share)}</span>`
+        : "<span>名单已经就位</span><span>等第一条使用记录</span>";
+      const score = entry.totalTokens
+        ? `<div class="podium-score">${formatCompact(entry.totalTokens)}<small>TOKEN</small></div>`
+        : `<div class="podium-score is-waiting">待点亮</div>`;
+      return `
+        <article class="podium-card place-${place}${entry.totalTokens ? "" : " is-unlit"}">
+          <span class="podium-ribbon">${labels[place - 1]}</span>
+          <span class="podium-medal" aria-hidden="true">${icons[place - 1]}</span>
+          <div class="podium-person">${avatar(entry.user)}<div class="podium-person-copy"><strong>${escapeHtml(entry.user.displayName)}</strong><span>${escapeHtml(tier.name)}</span></div></div>
+          ${score}
+          <div class="podium-meta">${meta}</div>
+          <span class="podium-watermark" aria-hidden="true">0${place}</span>
+        </article>`;
+    }
+
+    function renderPodium() {
+      const element = $("podium");
+      if (state.loading) {
+        element.innerHTML = `
+          <div class="podium-card place-1 skeleton skeleton-podium"></div>
+          <div class="podium-card place-2 skeleton skeleton-podium"></div>
+          <div class="podium-card place-3 skeleton skeleton-podium"></div>`;
+        return;
+      }
+      if (state.error && !state.rankings.length) {
+        element.innerHTML = `<div class="state-block" style="grid-column:1/-1"><span class="state-mark">!</span><p>榜单暂时没有加载出来。</p><button class="button ghost small" type="button" data-retry>重新加载</button></div>`;
+        return;
+      }
+      element.innerHTML = [1, 2, 3].map((place) => podiumCard(state.rankings[place - 1], place)).join("");
+    }
+
+    function rowMarkup(entry) {
+      const allTokens = totalTokens();
+      const leaderTokens = state.rankings[0]?.totalTokens || 0;
+      const share = allTokens ? entry.totalTokens / allTokens : 0;
+      const barWidth = leaderTokens ? Math.max(entry.totalTokens / leaderTokens * 100, entry.totalTokens ? 2 : 0) : 0;
+      const tier = tierFor(entry.totalTokens);
+      const isMe = state.me && state.me.id === entry.user.id;
+      const model = topModel(entry);
+      const rank = String(entry.rank).padStart(2, "0");
+      return `
+        <div class="rank-row${isMe ? " is-me" : ""}${entry.totalTokens ? "" : " is-zero"}" role="listitem" title="${escapeHtml(barTitle(entry))}">
+          <span class="rank-no">${rank}</span>
+          <div class="rank-user">
+            ${avatar(entry.user)}
+            <div class="rank-name">
+              <div class="name-line">
+                <strong>${escapeHtml(entry.user.displayName)}</strong>
+                ${isMe ? '<span class="you-badge">你</span>' : ""}
+                <span class="tier-chip">${escapeHtml(tier.name)}</span>
+              </div>
+              <span class="model-line">${escapeHtml(model)} · ${formatFull(entry.eventCount)} 回合</span>
+            </div>
+          </div>
+          <div class="rank-bar">
+            <div class="mini-bar"><span class="mini-fill" style="width:${barWidth}%">${segmentMarkup(entry)}</span></div>
+            <div class="bar-caption">占全场 ${formatPercent(share)}</div>
+          </div>
+          <div class="rank-total${entry.totalTokens ? "" : " is-waiting"}">${entry.totalTokens ? `${formatCompact(entry.totalTokens)}<small>TOKEN</small>` : "待点亮"}</div>
+        </div>`;
+    }
+
+    function renderList() {
+      const element = $("ranking-body");
+      if (state.loading) {
+        element.innerHTML = [1, 2, 3].map(() => `
+          <div class="skeleton-row"><div class="skeleton sk-avatar"></div><div class="skeleton-row-copy"><div class="skeleton sk-line w40"></div><div class="skeleton sk-line w60"></div></div></div>`).join("");
+        return;
+      }
+      if (state.error && !state.rankings.length) {
+        element.innerHTML = `<div class="state-block" style="grid-row:span 3"><span class="state-mark">!</span><p>${escapeHtml(state.error)}</p><button class="button ghost small" type="button" data-retry>重新加载</button></div>`;
+        return;
+      }
+      const rest = state.rankings.slice(3);
+      if (!rest.length) {
+        element.innerHTML = `<div class="list-empty"><strong>${state.rankings.length ? "领奖台之外，还缺一个名字。" : "还没有人留下足迹。"}</strong><p>每一次认真的思考，都会在这里留下位置。</p></div>`;
+        return;
+      }
+      element.innerHTML = rest.map(rowMarkup).join("");
+    }
+
+    function achievements(entry) {
+      if (!entry || !entry.totalTokens) return [{ text: "待点亮", color: "" }];
+      const result = [];
+      if (entry.rank === 1) result.push({ text: "燃王", color: "gold" });
+      else if (entry.rank <= 3) result.push({ text: "领奖台", color: "gold" });
+      if (entry.totalTokens >= 100_000_000) result.push({ text: "亿级火力", color: "gold" });
+      if (entry.eventCount >= 100) result.push({ text: "常驻选手", color: "mint" });
+      if (Object.keys(entry.byModel || {}).length >= 3) result.push({ text: "多模型玩家", color: "violet" });
+      const parts = components(entry);
+      if (entry.inputTokens && parts.cached / entry.inputTokens >= 0.85) result.push({ text: "缓存大师", color: "mint" });
+      if (entry.outputTokens && entry.reasoningOutputTokens / entry.outputTokens >= 0.05) result.push({ text: "深度推理", color: "violet" });
+      return result.slice(0, 4);
+    }
+
+    function renderMyCard() {
+      const element = $("my-card");
+      if (!state.me) {
+        element.className = "my-card is-guest";
+        element.innerHTML = `
+          <div>
+            <p class="my-kicker">YOUR SCORE</p>
+            <h3>下一个上榜的，<br>会是你吗？</h3>
+            <p class="my-copy">登录后，你的每一次调用都会留下名字。还可以把排行榜账号连接回 Taskboard。</p>
+            <button class="button primary my-cta" type="button" data-open-auth>登录 / 注册，点亮战绩</button>
+          </div>
+          <div class="guest-orbit" aria-hidden="true"><span>?</span></div>`;
+        return;
+      }
+      const entry = myEntry();
+      const rank = entry?.rank ?? "100+";
+      const total = Number(entry?.totalTokens) || 0;
+      const events = Number(entry?.eventCount) || 0;
+      const allTokens = totalTokens();
+      const share = allTokens ? total / allTokens : 0;
+      const tier = tierFor(total);
+      const previous = typeof rank === "number" && rank > 1 ? state.rankings[rank - 2] : null;
+      const gap = previous ? Math.max(0, previous.totalTokens - total) : 0;
+      const progress = !entry ? 0 : rank === 1 ? 100 : previous?.totalTokens ? Math.min(100, total / previous.totalTokens * 100) : 0;
+      element.className = "my-card is-me";
+      element.innerHTML = `
+        <div class="my-head">
+          ${avatar(state.me, "lg")}
+          <div class="my-head-copy">
+            <p class="my-kicker">MY SCORE</p>
+            <h3>${escapeHtml(state.me.displayName)}</h3>
+            <p>${escapeHtml(tier.name)} · 第 ${rank} 名</p>
+          </div>
+          <span class="my-rank-pill">#${rank}</span>
+        </div>
+        <div class="my-metrics">
+          <div class="my-metric"><span>累计 Token</span><strong>${formatCompact(total)}</strong></div>
+          <div class="my-metric"><span>思考回合</span><strong>${formatFull(events)}</strong></div>
+          <div class="my-metric"><span>全场占比</span><strong>${formatPercent(share)}</strong></div>
+        </div>
+        <div class="my-progress">
+          <div class="my-progress-head">
+            <span>${rank === 1 ? "你正在领跑" : total ? "距离上一名" : "等待第一条记录"}</span>
+            <strong>${rank === 1 ? "保持燃烧" : total ? `还差 ${formatCompact(gap)} Token` : "去 Taskboard 开启同步"}</strong>
+          </div>
+          <div class="progress-track"><i style="width:${progress}%"></i></div>
+        </div>
+        <div class="badges">${achievements(entry).map((badge) => `<span class="badge ${badge.color}">${escapeHtml(badge.text)}</span>`).join("")}</div>
+        <p class="my-model">常用模型 <code>${escapeHtml(topModel(entry))}</code></p>`;
+    }
+
+    function renderAccount() {
+      const account = $("account");
+      if (state.me) {
+        account.className = "account-chip is-user";
+        account.innerHTML = `${avatar(state.me, "2xs")}<span>${escapeHtml(state.me.displayName)}</span>`;
+        account.setAttribute("aria-label", `账户：${state.me.displayName}`);
+      } else {
+        account.className = "account-chip is-guest";
+        account.textContent = "登录 / 注册";
+        account.setAttribute("aria-label", "登录或注册");
+      }
+      $("hero-action").textContent = state.me ? "查看我的战绩" : "点亮我的战绩";
+    }
+
+    function renderUpdated() {
+      const element = $("updated");
+      element.classList.toggle("is-error", Boolean(state.error));
+      if (state.loading) {
+        element.innerHTML = '<span class="dot" aria-hidden="true"></span>正在同步榜单…';
+        return;
+      }
+      if (state.refreshing) {
+        element.innerHTML = '<span class="dot" aria-hidden="true"></span>正在刷新，成绩马上回来…';
+        return;
+      }
+      const time = state.updatedAt
+        ? state.updatedAt.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })
+        : "";
+      if (state.error) {
+        element.innerHTML = `<span class="dot" aria-hidden="true"></span>刷新失败${time ? ` · 上次数据 ${time}` : ""}`;
+        return;
+      }
+      element.innerHTML = `<span class="dot" aria-hidden="true"></span>更新于 ${time} · 每次刷新都算数`;
+    }
+
+    function updateAuthMode() {
+      $("display-name-wrap").hidden = state.mode !== "register";
+      $("submit-auth").textContent = state.mode === "register" ? "注册并上榜" : "登录";
+      $("password").autocomplete = state.mode === "register" ? "new-password" : "current-password";
+      $("show-login").classList.toggle("is-active", state.mode === "login");
+      $("show-register").classList.toggle("is-active", state.mode === "register");
+      $("show-login").setAttribute("aria-selected", String(state.mode === "login"));
+      $("show-register").setAttribute("aria-selected", String(state.mode === "register"));
+    }
+
+    function renderAuth() {
+      const signedIn = Boolean(state.me);
+      $("auth-signed-in").hidden = !signedIn;
+      $("auth-form-wrap").hidden = signedIn;
+      $("auth-title").textContent = signedIn ? "你的战绩，已经点亮" : "让你的 Token 有个名字";
+      $("auth-subtitle").textContent = signedIn
+        ? "每一段使用记录都在这里累积。你只需要继续认真思考。"
+        : "登录或注册后，就能收藏自己的战绩，也可以从 Taskboard 连接账号。";
+      $("connect-wrap").hidden = !(signedIn && queryCallback());
+      $("connect-note").hidden = !(signedIn && !queryCallback());
+      if (signedIn) {
+        const entry = myEntry();
+        const rank = entry?.rank ?? "100+";
+        const tier = tierFor(Number(entry?.totalTokens) || 0);
+        $("signed-in-body").innerHTML = `
+          <div class="signed-in-card">
+            ${avatar(state.me, "lg")}
+            <div class="signed-in-copy">
+              <strong>${escapeHtml(state.me.displayName)}</strong>
+              <span>${escapeHtml(tier.name)} · ${formatCompact(Number(entry?.totalTokens) || 0)} Token</span>
+            </div>
+            <span class="signed-in-rank">#${rank}</span>
+          </div>`;
+      } else {
+        updateAuthMode();
       }
     }
-    async function loadRanking() {
-      const data = await api("/api/rankings");
-      $("ranking-body").innerHTML = data.rankings.length
-        ? data.rankings.map((entry) => `<tr><td>${entry.rank}</td><td>${escapeHtml(entry.user.displayName)}</td><td>${entry.eventCount}</td><td>${entry.totalTokens.toLocaleString()}</td></tr>`).join("")
-        : '<tr><td colspan="4">暂无数据</td></tr>';
+
+    function renderAll() {
+      renderSpotlight();
+      renderStats();
+      renderPodium();
+      renderList();
+      renderMyCard();
+      renderAccount();
+      renderUpdated();
+      renderAuth();
+      const refresh = $("refresh");
+      refresh.disabled = state.loading || state.refreshing;
+      refresh.classList.toggle("spin", state.refreshing);
     }
-    $("show-login").onclick = () => { state.mode = "login"; renderMode(); };
-    $("show-register").onclick = () => { state.mode = "register"; renderMode(); };
-    $("auth-form").onsubmit = async (event) => {
+
+    async function loadRankings() {
+      const firstLoad = !state.rankings.length && !state.updatedAt;
+      if (firstLoad) state.loading = true;
+      state.refreshing = true;
+      state.error = "";
+      renderAll();
+      try {
+        const data = await api("/api/rankings");
+        state.rankings = Array.isArray(data.rankings) ? data.rankings : [];
+        state.updatedAt = new Date();
+      } catch (error) {
+        state.error = error.message || "无法连接排行榜服务";
+      } finally {
+        state.loading = false;
+        state.refreshing = false;
+        renderAll();
+      }
+    }
+
+    async function loadAccount() {
+      if (!state.token) {
+        state.me = null;
+        renderAll();
+        return;
+      }
+      try {
+        const data = await api("/api/me");
+        state.me = data.user || null;
+      } catch {
+        state.me = null;
+      }
+      renderAll();
+    }
+
+    function openAuth() {
+      lastFocused = document.activeElement;
+      renderAuth();
+      $("auth").hidden = false;
+      document.body.classList.add("modal-open");
+      window.requestAnimationFrame(() => {
+        if (state.me) $("auth").querySelector(".modal-close")?.focus();
+        else $("username")?.focus();
+      });
+    }
+
+    function closeAuth() {
+      $("auth").hidden = true;
+      document.body.classList.remove("modal-open");
+      if (lastFocused && typeof lastFocused.focus === "function") lastFocused.focus();
+    }
+
+    $("account").addEventListener("click", openAuth);
+    $("hero-action").addEventListener("click", () => {
+      if (state.me) {
+        document.querySelector(".my-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else {
+        openAuth();
+      }
+    });
+    $("refresh").addEventListener("click", () => void loadRankings());
+
+    $("show-login").addEventListener("click", () => {
+      state.mode = "login";
+      updateAuthMode();
+    });
+    $("show-register").addEventListener("click", () => {
+      state.mode = "register";
+      updateAuthMode();
+    });
+
+    $("auth-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       $("auth-error").textContent = "";
+      const button = $("submit-auth");
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = state.mode === "register" ? "正在注册…" : "正在登录…";
       try {
-        const data = await api(`/api/auth/${state.mode}`, { method: "POST", body: JSON.stringify({ username: $("username").value, password: $("password").value, displayName: $("display-name").value }) });
+        const data = await api(`/api/auth/${state.mode}`, {
+          method: "POST",
+          body: JSON.stringify({
+            username: $("username").value,
+            password: $("password").value,
+            displayName: $("display-name").value,
+          }),
+        });
         state.token = data.token;
+        state.me = data.user;
         localStorage.setItem(tokenKey, state.token);
-        await loadAccount();
-        await loadRanking();
+        $("password").value = "";
+        await loadRankings();
+        renderAll();
+        if (queryCallback()) {
+          renderAuth();
+        } else {
+          closeAuth();
+        }
       } catch (error) {
         $("auth-error").textContent = error.message;
+        button.disabled = false;
+        button.textContent = originalText;
       }
-    };
-    $("connect").onclick = async () => {
+    });
+
+    $("connect").addEventListener("click", async () => {
       const query = new URLSearchParams(location.search);
       const callback = query.get("callback");
       if (!callback) return;
@@ -124,11 +1778,44 @@
         headers: { "content-type": "application/json", authorization: `Bearer ${state.token}` },
         body: JSON.stringify({ callback, returnUrl: query.get("return") || "" }),
       });
-      document.open(); document.write(await response.text()); document.close();
-    };
-    renderMode();
-    loadAccount().catch(() => {});
-    loadRanking().catch(() => {});
+      document.open();
+      document.write(await response.text());
+      document.close();
+    });
+
+    $("signout").addEventListener("click", async () => {
+      try {
+        await api("/api/auth/logout", { method: "POST" });
+      } catch {
+        // The local session is cleared even if the server token is already invalid.
+      }
+      state.token = "";
+      state.me = null;
+      localStorage.removeItem(tokenKey);
+      state.mode = "login";
+      await loadRankings();
+      renderAll();
+      closeAuth();
+    });
+
+    $("auth").addEventListener("click", (event) => {
+      if (event.target.closest("[data-close-auth]")) closeAuth();
+    });
+    $("auth").addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeAuth();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !$("auth").hidden) closeAuth();
+    });
+    document.addEventListener("click", (event) => {
+      if (event.target.closest("[data-open-auth]")) openAuth();
+      if (event.target.closest("[data-retry]")) void loadRankings();
+    });
+
+    updateAuthMode();
+    renderAll();
+    void loadAccount();
+    void loadRankings();
   </script>
 </body>
 </html>
