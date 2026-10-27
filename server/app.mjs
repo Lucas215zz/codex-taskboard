@@ -68,6 +68,7 @@ const INLINE_ATTACHMENT_TYPES = new Set([
 ]);
 const PROJECT_BOARD_DISPLAY_SETTINGS_KEY_PREFIX = "taskboard.project-board-display-settings.v3.";
 const TRUSTED_EMBED_ORIGINS = new Set(["app://-"]);
+const RANKING_CONNECT_ORIGINS = new Set(["https://ttokens.lusixian.com"]);
 const TRUSTED_ORIGINS_ENV = "CODEX_TASKBOARD_TRUSTED_ORIGINS";
 const CODEX_AGENT_ACTOR = {
   type: "agent",
@@ -236,7 +237,12 @@ function parseRequestHost(value) {
   return { hostname: url.hostname, httpsOrigin: url.origin };
 }
 
-function assertTrustedNetworkRequest(request, allowOpaqueOrigin = false, trustedOrigins = new Set()) {
+function assertTrustedNetworkRequest(
+  request,
+  allowOpaqueOrigin = false,
+  trustedOrigins = new Set(),
+  allowedCrossSiteOrigins = new Set(),
+) {
   const host = parseRequestHost(request.headers.host);
   const trustedNetworkHost = isTrustedNetworkHost(host.hostname);
   const configuredTrustedHost = !trustedNetworkHost && trustedOrigins.has(host.httpsOrigin);
@@ -246,7 +252,13 @@ function assertTrustedNetworkRequest(request, allowOpaqueOrigin = false, trusted
 
   const origin = request.headers.origin;
   const configuredTrustedOrigin = trustedOrigins.has(origin);
-  if (origin && !configuredTrustedOrigin && !TRUSTED_EMBED_ORIGINS.has(origin)) {
+  const allowedCrossSiteOrigin = allowedCrossSiteOrigins.has(origin);
+  if (
+    origin
+    && !configuredTrustedOrigin
+    && !TRUSTED_EMBED_ORIGINS.has(origin)
+    && !allowedCrossSiteOrigin
+  ) {
     if (!(allowOpaqueOrigin && origin === "null")) {
       let originHost;
       try {
@@ -1782,10 +1794,15 @@ export function createTaskboardServer(options = {}) {
         request.url = `${incomingUrl.pathname.slice(routePrefix.length) || "/"}${incomingUrl.search}`;
       }
 
+      const isRankingConnectRequest = new URL(request.url, "http://127.0.0.1").pathname
+        === "/api/local/token-usage/connect";
       const configuredTrustedRequest = assertTrustedNetworkRequest(
         request,
-        Boolean(resolved.instanceToken),
+        isRankingConnectRequest || Boolean(resolved.instanceToken),
         resolved.trustedOrigins,
+        isRankingConnectRequest
+          ? RANKING_CONNECT_ORIGINS
+          : new Set(),
       );
       const origin = request.headers.origin;
       const trustedEmbedOrigin = TRUSTED_EMBED_ORIGINS.has(origin)
