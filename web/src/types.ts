@@ -39,6 +39,7 @@ export interface DevelopmentScan {
 
 export interface TaskboardMetadata {
   manageTaskboardSkillPath?: string;
+  version?: string;
   capabilities?: TaskboardCapabilities;
   mode?: "local" | "cloud";
   realtime?:
