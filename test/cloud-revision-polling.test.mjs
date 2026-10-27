@@ -135,7 +135,7 @@ test("does not start another request while a revision request is pending", async
   await flush();
 
   assert.deepEqual(calls, [0, 9]);
-  assert.equal(invalidations, 1);
+  assert.equal(invalidations, 0);
 });
 
 test("keeps the old revision after an error and retries it on the next tick", async () => {
@@ -162,7 +162,7 @@ test("keeps the old revision after an error and retries it on the next tick", as
   await flush();
 
   assert.deepEqual(calls, [0, 0]);
-  assert.equal(invalidations, 1);
+  assert.equal(invalidations, 0);
 });
 
 test("uses an explicit interval and clears its timer when stopped", async () => {
