@@ -1807,11 +1807,13 @@ export function createTaskboardServer(options = {}) {
         request.url = `${incomingUrl.pathname.slice(routePrefix.length) || "/"}${incomingUrl.search}`;
       }
 
+      const isRankingConnectRequest = new URL(request.url, "http://127.0.0.1").pathname
+        === "/api/local/token-usage/connect";
       const configuredTrustedRequest = assertTrustedNetworkRequest(
         request,
-        Boolean(resolved.instanceToken),
+        isRankingConnectRequest || Boolean(resolved.instanceToken),
         resolved.trustedOrigins,
-        new URL(request.url, "http://127.0.0.1").pathname === "/api/local/token-usage/connect"
+        isRankingConnectRequest
           ? RANKING_CONNECT_ORIGINS
           : new Set(),
       );

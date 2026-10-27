@@ -195,6 +195,26 @@ function dayValue(value: string) {
   return new Date(`${value}T00:00:00`).getTime();
 }
 
+function smoothPath(points: { x: number; y: number }[]) {
+  if (points.length < 2) return "";
+  if (points.length === 2) {
+    return `M${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)} L${points[1].x.toFixed(2)} ${points[1].y.toFixed(2)}`;
+  }
+  let d = `M${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C${c1x.toFixed(2)} ${c1y.toFixed(2)} ${c2x.toFixed(2)} ${c2y.toFixed(2)} ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+
 function shortDate(value: string, locale: string) {
   return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" })
     .format(new Date(`${value}T12:00:00`));
@@ -267,14 +287,14 @@ function DashboardSummary({
   }, [animateSummaryOnMount, projectId, summary, summaryReady]);
 
   return (
-    <section className="dashboard-codex-summary" aria-label={text("Codex 项目总结", "Codex project summary")}>
-      <div className="dashboard-summary-bubble">
+    <section className="dash-summary" aria-label={text("Codex 项目总结", "Codex project summary")}>
+      <div className="dash-summary-bubble">
         <p
           className={summaryTyping ? "is-typing" : undefined}
           aria-label={summaryReady ? summary : text("Codex 正在整理项目总结", "Codex is preparing the project summary")}
         >{displayedSummary}</p>
       </div>
-      <img className="dashboard-codex-mark" src="codex-agent-logo.png" alt="" aria-hidden="true" />
+      <img className="dash-summary-mark" src="codex-agent-logo.png" alt="" aria-hidden="true" />
     </section>
   );
 }
@@ -285,212 +305,137 @@ function DashboardProgressChart({ progressData, todayValue }: {
 }) {
   const { locale, text } = useTaskboardI18n();
   const [progressHoverIndex, setProgressHoverIndex] = useState<number | null>(null);
-  const rangeEnd = new Date(todayValue);
-  rangeEnd.setMonth(rangeEnd.getMonth() + 3);
-  const rangeEndValue = rangeEnd.getTime();
   const progressChart = useMemo(() => {
-    const left = 0;
-    const right = 426;
-    const top = 28;
-    const bottom = 227;
-    const currentX = 294;
-    const valueMaximum = Math.max(1, progressData.scope);
-    const y = (value: number) => bottom - (value / valueMaximum) * (bottom - top);
-    const points = progressData.points.map((point, index) => ({
-      ...point,
-      x: left + ((currentX - left) * index) / (progressData.points.length - 1),
-    }));
-    const path = (key: "scope" | "started" | "completed") => points
-      .map((point, index) => `${index === 0 ? "M" : "L"}${point.x.toFixed(2)} ${y(point[key]).toFixed(2)}`)
-      .join(" ");
-    const completedPath = path("completed");
-    const forecast = progressData.forecast
-      ? {
-          optimisticX: currentX + ((right - currentX)
-            * (progressData.forecast.optimisticAt - todayValue))
-            / (rangeEndValue - todayValue),
-          conservativeX: currentX + ((right - currentX)
-            * (progressData.forecast.conservativeAt - todayValue))
-            / (rangeEndValue - todayValue),
-        }
-      : null;
-    return {
-      left,
-      right,
-      top,
-      bottom,
-      currentX,
-      y,
-      points,
-      scopePath: `${path("scope")} L${right} ${y(progressData.scope).toFixed(2)}`,
-      startedPath: path("started"),
-      completedPath,
-      completedArea: `${completedPath} L${currentX} ${bottom} L${left} ${bottom} Z`,
-      forecast,
-      maximumCompletions: Math.max(1, ...progressData.points.map((point) => point.completions)),
-    };
-  }, [progressData, rangeEndValue, todayValue]);
+    const bars = progressData.points.map((point, index, points) => {
+      const step = 100 / points.length;
+      return {
+        ...point,
+        x: index * step + step * 0.16,
+        width: step * 0.68,
+        previousCompleted: index === 0 ? 0 : points[index - 1].completed,
+      };
+    });
+    const valueMaximum = Math.max(4, progressData.scope);
+    return { bars, valueMaximum };
+  }, [progressData]);
   const hoveredProgressPoint = progressHoverIndex === null
     ? null
-    : progressChart.points[progressHoverIndex];
+    : progressChart.bars[progressHoverIndex];
+  const percent = progressData.scope > 0
+    ? Math.round((progressData.completed / progressData.scope) * 100)
+    : null;
 
   return (
-    <section className="dashboard-panel dashboard-tertiary-panel dashboard-progress-panel">
-      <header className="dashboard-progress-header">
-        <div className="dashboard-progress-title">
+    <section className="dash-card dash-progress-card">
+      <header className="dash-chart-head">
+        <div className="dash-chart-title">
           <span>{text("累计进度", "Cumulative progress")}</span>
+          <small className="dash-chart-meta">{percent === null ? text("暂无任务", "No tasks") : percent + "% · " + progressData.completed + "/" + progressData.scope}</small>
         </div>
-        <div className="dashboard-progress-legend">
-          <span className="tone-scope"><i />{text("范围", "Scope")} <strong>{progressData.scope}</strong></span>
-          <span className="tone-started"><i />{text("已开始", "Started")} <strong>{progressData.started}</strong></span>
-          <span className="tone-completed"><i />{text("已完成", "Completed")} <strong>{progressData.completed}</strong></span>
+        <div className="dash-chart-legend">
+          <span className="tone-completed"><i />{text("分期完成", "Interval completions")}</span>
+          <span className="tone-scope"><i />{text("当前累计", "Current total")} <strong>{progressData.completed}</strong></span>
         </div>
       </header>
-      <div className="dashboard-progress-body">
+      <div className="dash-chart-body">
         <svg
-          className="dashboard-progress-chart"
-          viewBox="0 0 426 272"
+          className="dash-chart-svg"
+          viewBox="0 0 100 116"
+          preserveAspectRatio="none"
           role="img"
           aria-label={text(
-            `项目累计进度：范围 ${progressData.scope}，已开始 ${progressData.started}，已完成 ${progressData.completed}`,
-            `Cumulative project progress: scope ${progressData.scope}, started ${progressData.started}, completed ${progressData.completed}`,
+            "分期完成任务量，当前累计 " + progressData.completed + "，总范围 " + progressData.scope,
+            "Completed tasks per interval, current total " + progressData.completed + ", total scope " + progressData.scope,
           )}
         >
           <defs>
-            <linearGradient id="dashboard-progress-area" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0" stopColor="#22b889" stopOpacity=".18" />
-              <stop offset="1" stopColor="#22b889" stopOpacity="0" />
-            </linearGradient>
-            <linearGradient id="dashboard-progress-forecast-area" x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0" stopColor="#22b889" stopOpacity=".11" />
-              <stop offset="1" stopColor="#22b889" stopOpacity=".025" />
+            <linearGradient id="dash-progress-bar" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#0071e3" stopOpacity=".34" />
+              <stop offset="1" stopColor="#0071e3" stopOpacity=".08" />
             </linearGradient>
           </defs>
-
-          <line
-            className="dashboard-progress-baseline"
-            x1={progressChart.left}
-            y1={progressChart.bottom}
-            x2={progressChart.right}
-            y2={progressChart.bottom}
-          />
-          <path className="dashboard-progress-completed-area" d={progressChart.completedArea} />
-          {progressChart.forecast ? (
-            <path
-              className="dashboard-progress-forecast-area"
-              d={`M${progressChart.currentX} ${progressChart.y(progressData.completed)} L${progressChart.forecast.optimisticX} ${progressChart.y(progressData.scope)} L${progressChart.forecast.conservativeX} ${progressChart.y(progressData.scope)} Z`}
-            />
-          ) : null}
-          <path className="dashboard-progress-line tone-scope" d={progressChart.scopePath} />
-          <path className="dashboard-progress-line tone-started" d={progressChart.startedPath} />
-          <path className="dashboard-progress-line tone-completed" d={progressChart.completedPath} />
-          {progressChart.forecast ? (
-            <>
-              <path
-                className="dashboard-progress-projection"
-                d={`M${progressChart.currentX} ${progressChart.y(progressData.completed)} L${progressChart.forecast.optimisticX} ${progressChart.y(progressData.scope)}`}
-              />
-              <path
-                className="dashboard-progress-projection"
-                d={`M${progressChart.currentX} ${progressChart.y(progressData.completed)} L${progressChart.forecast.conservativeX} ${progressChart.y(progressData.scope)}`}
-              />
-            </>
-          ) : null}
-
-          {progressChart.points.slice(1).map((point, index) => {
-            if (!point.completions) return null;
-            const width = 4;
-            const height = 8 + (point.completions / progressChart.maximumCompletions) * 20;
+          {progressChart.bars.map((bar, index) => {
+            const growth = bar.completed - bar.previousCompleted;
+            const barHeight = growth > 0
+              ? Math.min(100, Math.max(4, (growth / progressChart.valueMaximum) * 260))
+              : 0;
+            const isLatest = index === progressChart.bars.length - 1;
             return (
               <rect
-                className="dashboard-progress-delivery-bar"
-                x={point.x - width / 2}
-                y={progressChart.bottom - height}
-                width={width}
-                height={height}
-                rx="2"
-                key={`${point.timestamp}-${index}`}
+                className="dash-progress-bar"
+                x={bar.x}
+                y={100 - barHeight}
+                width={bar.width}
+                height={barHeight}
+                rx={isLatest ? 1.4 : 1.2}
+                opacity={isLatest ? 1 : 0.78}
+                key={bar.timestamp}
               />
             );
           })}
-
-          <line
-            className="dashboard-progress-now-line"
-            x1={progressChart.currentX}
-            y1={progressChart.top - 4}
-            x2={progressChart.currentX}
-            y2={progressChart.bottom + 7}
-          />
-          <circle className="dashboard-progress-point tone-scope" cx={progressChart.currentX} cy={progressChart.y(progressData.scope)} r="4" />
-          <circle className="dashboard-progress-point tone-started" cx={progressChart.currentX} cy={progressChart.y(progressData.completed + progressData.started)} r="4" />
-          <circle className="dashboard-progress-point tone-completed" cx={progressChart.currentX} cy={progressChart.y(progressData.completed)} r="4" />
-
+          <line className="dash-chart-baseline" x1="0" y1="100" x2="100" y2="100" vectorEffect="non-scaling-stroke" />
+          {progressData.forecast ? (
+            <g className="dash-progress-forecast">
+              <circle cx="97.4" cy="20" r="1.7" />
+              <text className="dash-progress-forecast-label" x="93.4" y="21.2" textAnchor="end">
+                {chartDate(progressData.forecast.optimisticAt, locale)}
+              </text>
+            </g>
+          ) : null}
           {hoveredProgressPoint ? (
             <>
               <line
-                className="dashboard-progress-hover-line"
-                x1={hoveredProgressPoint.x}
-                y1={progressChart.top - 2}
-                x2={hoveredProgressPoint.x}
-                y2={progressChart.bottom + 5}
+                className="dash-chart-hover"
+                x1={hoveredProgressPoint.x + hoveredProgressPoint.width / 2}
+                y1="8"
+                x2={hoveredProgressPoint.x + hoveredProgressPoint.width / 2}
+                y2="100"
+                vectorEffect="non-scaling-stroke"
               />
-              <g
-                className="dashboard-progress-tooltip"
-                transform={`translate(${hoveredProgressPoint.x > progressChart.right - 172 ? hoveredProgressPoint.x - 172 : hoveredProgressPoint.x + 10} 8)`}
-              >
-                <rect width="162" height="80" rx="9" />
-                <text className="dashboard-progress-tooltip-date" x="12" y="20">
-                  {chartDate(hoveredProgressPoint.timestamp, locale)}
-                </text>
-                <text x="12" y="40">{text("范围", "Scope")} {hoveredProgressPoint.scope}</text>
-                <text x="12" y="58">{text("已开始", "Started")} {Math.max(0, hoveredProgressPoint.started - hoveredProgressPoint.completed)}</text>
-                <text x="88" y="58">{text("已完成", "Completed")} {hoveredProgressPoint.completed}</text>
-                <text className="dashboard-progress-tooltip-delta" x="88" y="40">
-                  Δ {hoveredProgressPoint.scope - (progressChart.points[Math.max(0, progressHoverIndex! - 1)]?.scope ?? hoveredProgressPoint.scope)}
-                </text>
-              </g>
             </>
           ) : null}
-
-          {progressChart.points.map((point, index) => {
-            const hitWidth = (progressChart.currentX - progressChart.left) / (progressChart.points.length - 1);
-            return (
-              <rect
-                className="dashboard-progress-hitbox"
-                x={Math.max(progressChart.left, point.x - hitWidth / 2)}
-                y={progressChart.top - 6}
-                width={index === 0 || index === progressChart.points.length - 1 ? hitWidth / 2 : hitWidth}
-                height={progressChart.bottom - progressChart.top + 16}
-                fill="transparent"
-                role="button"
-                tabIndex={0}
-                aria-label={text(
-                  `${chartDate(point.timestamp, locale)}：范围 ${point.scope}，已开始 ${Math.max(0, point.started - point.completed)}，已完成 ${point.completed}`,
-                  `${chartDate(point.timestamp, locale)}: scope ${point.scope}, started ${Math.max(0, point.started - point.completed)}, completed ${point.completed}`,
-                )}
-                onMouseEnter={() => setProgressHoverIndex(index)}
-                onMouseLeave={() => setProgressHoverIndex(null)}
-                onFocus={() => setProgressHoverIndex(index)}
-                onBlur={() => setProgressHoverIndex(null)}
-                onClick={() => setProgressHoverIndex(index)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") setProgressHoverIndex(index);
-                }}
-                key={`${point.timestamp}-${index}`}
-              />
-            );
-          })}
-
-          <text className="dashboard-progress-axis-label" x={progressChart.left} y="260">
-            {chartDate(progressChart.points[0].timestamp, locale)}
-          </text>
-          <text className="dashboard-progress-axis-label is-current" x={progressChart.currentX} y="260" textAnchor="middle">
-            {chartDate(todayValue, locale)}
-          </text>
-          <text className="dashboard-progress-axis-label" x={progressChart.right} y="260" textAnchor="end">
-            {chartDate(rangeEndValue, locale, todayValue)}
-          </text>
+          {progressChart.bars.map((bar, index) => (
+            <rect
+              className="dash-chart-hit"
+              x={(index * 100) / progressChart.bars.length}
+              y="0"
+              width={100 / progressChart.bars.length}
+              height="104"
+              fill="transparent"
+              role="button"
+              tabIndex={0}
+              aria-label={text(
+                chartDate(bar.timestamp, locale) + "：累计 " + bar.completed + "，新增 " + (bar.completed - bar.previousCompleted),
+                chartDate(bar.timestamp, locale) + ": total " + bar.completed + ", new " + (bar.completed - bar.previousCompleted),
+              )}
+              onMouseEnter={() => setProgressHoverIndex(index)}
+              onMouseLeave={() => setProgressHoverIndex(null)}
+              onFocus={() => setProgressHoverIndex(index)}
+              onBlur={() => setProgressHoverIndex(null)}
+              onClick={() => setProgressHoverIndex(index)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") setProgressHoverIndex(index);
+              }}
+              key={bar.timestamp + "-" + index}
+            />
+          ))}
         </svg>
+        {hoveredProgressPoint ? (
+          <div
+            className="dash-progress-tip"
+            style={{
+              left: `clamp(44px, ${(hoveredProgressPoint.x + hoveredProgressPoint.width / 2)}%, calc(100% - 44px))`,
+            }}
+          >
+            <strong>{progressData.completed}</strong>
+            <span>{chartDate(hoveredProgressPoint.timestamp, locale)}</span>
+            <em>{text("新增", "New")} +{hoveredProgressPoint.completed - hoveredProgressPoint.previousCompleted}</em>
+          </div>
+        ) : null}
+        <div className="dash-progress-axis">
+          <span>{chartDate(progressData.points[0].timestamp, locale)}</span>
+          <span className="is-current">{chartDate(todayValue, locale)}</span>
+        </div>
       </div>
     </section>
   );
@@ -553,8 +498,8 @@ export function DashboardView({
   const {
     activeTasks, completedTasks, overdueTasks, upcomingTasks, projectCompletion,
     roleContributions, completedTotal, priorityCounts, labelCounts, totalLabelAssignments,
-    visibleLabelCounts, maximumVisibleLabelCount, contributionWeeks, contributionMaximum,
-    contributionDateFormatter, monthMarkers, metrics,
+    visibleLabelCounts, maximumVisibleLabelCount, contributionWeeks, contributionMaximum, contributionTotal,
+      contributionDateFormatter, monthMarkers, metrics,
   } = useMemo(() => {
     const upcomingEnd = todayValue + 14 * 86_400_000;
     const activeTasks = tasks.filter((task) => task.status !== "done" && task.status !== "canceled");
@@ -620,7 +565,7 @@ export function DashboardView({
       : labelCounts
     ).map((item, index) => ({
       ...item,
-      color: item.label === "__other__" ? "var(--dashboard-other-label-color)" : LABEL_COLORS[index % LABEL_COLORS.length],
+      color: item.label === "__other__" ? "var(--dash-other-label)" : LABEL_COLORS[index % LABEL_COLORS.length],
     }));
     const maximumVisibleLabelCount = Math.max(1, ...visibleLabelCounts.map((item) => item.count));
 
@@ -645,6 +590,7 @@ export function DashboardView({
       })
     ));
     const contributionMaximum = Math.max(1, ...contributionWeeks.flat().map((day) => day.count));
+    const contributionTotal = contributionWeeks.reduce((sum, week) => sum + week.reduce((daySum, day) => daySum + day.count, 0), 0);
     const monthFormatter = new Intl.DateTimeFormat(locale, { month: "short" });
     const contributionDateFormatter = new Intl.DateTimeFormat(locale, {
       year: "numeric",
@@ -686,7 +632,7 @@ export function DashboardView({
     return {
       activeTasks, completedTasks, overdueTasks, upcomingTasks, projectCompletion,
       roleContributions, completedTotal, priorityCounts, labelCounts, totalLabelAssignments,
-      visibleLabelCounts, maximumVisibleLabelCount, contributionWeeks, contributionMaximum,
+      visibleLabelCounts, maximumVisibleLabelCount, contributionWeeks, contributionMaximum, contributionTotal,
       contributionDateFormatter, monthMarkers, metrics,
     };
   }, [language, locale, tasks, text, todayValue]);
@@ -750,173 +696,100 @@ export function DashboardView({
 
   return (
     <div className="dashboard-view">
-      <div className="dashboard-content">
-        <div className="dashboard-overview">
-          <header className="dashboard-heading">
-            <h1>{text("项目完成度", "Project completion")}</h1>
-            <div className="dashboard-hero-value">
-              <strong>{projectCompletion.percentage}%</strong>
-              <span>{text(
-                projectCompletion.parentCount > 0
-                  ? `${projectCompletion.completedParents}/${projectCompletion.parentCount} 个顶层议题完成 · ${completedTasks.length} 个议题已完成`
-                  : "暂无可计算的议题",
-                projectCompletion.parentCount > 0
-                  ? `${projectCompletion.completedParents}/${projectCompletion.parentCount} top-level issues complete · ${completedTasks.length} issues complete`
-                  : "No issues to calculate",
-              )}</span>
-            </div>
-          </header>
-
-          <DashboardSummary
+      <div className="dash-root">
+        <section className="dash-hero">
+        <div className="dash-hero-copy">
+          <span className="dash-hero-label">{text("项目完成度", "Project completion")}</span>
+          <strong className="dash-hero-num">{projectCompletion.percentage}<i>%</i></strong>
+          <p>{text(
+            projectCompletion.parentCount > 0
+              ? `${summaryDate} · ${projectCompletion.completedParents}/${projectCompletion.parentCount} 个顶层议题完成 · ${completedTasks.length} 个议题已完成`
+              : `${summaryDate} · 暂无可计算的议题`,
+            projectCompletion.parentCount > 0
+              ? `${summaryDate} · ${projectCompletion.completedParents}/${projectCompletion.parentCount} top-level issues complete · ${completedTasks.length} issues complete`
+              : `${summaryDate} · No issues to calculate`,
+          )}</p>
+        </div>
+        <DashboardSummary
             projectId={projectId}
             summary={summary}
             summaryReady={summaryReady}
             animateSummary={animateSummary}
             onSummaryAnimationStart={onSummaryAnimationStart}
           />
-        </div>
+      </section>
 
-        <div className="dashboard-metrics">
-          {metrics.map((metric) => {
-            const percent = activeTasks.length ? Math.round((metric.value / activeTasks.length) * 100) : 0;
-            return (
-              <article className={`dashboard-metric tone-${metric.tone}`} key={metric.label}>
-                <span className="dashboard-metric-label">{metric.label}</span>
-                <div className="dashboard-metric-value">
-                  <strong>{metric.value}</strong>
-                  <b>{percent}%</b>
-                </div>
-                <span className="dashboard-metric-meter" aria-hidden="true">
-                  <i style={{ width: `${percent}%` }} />
-                </span>
-              </article>
-            );
-          })}
-        </div>
-
-        <div className="dashboard-analysis-heading">
-          <h2>{text("项目分析", "Project analysis")}</h2>
-        </div>
-
-        <div className="dashboard-grid">
-          <section className="dashboard-panel dashboard-primary-panel dashboard-priority-panel">
-            <header><span>{text("优先级", "Priority")}</span></header>
-            <div className="dashboard-priority-list">
-              {priorityCounts.map((item) => (
-                <div className={`dashboard-priority-row priority-${item.priority}`} key={item.priority}>
-                  <span className="dashboard-priority-name">
-                    <PriorityIcon priority={item.priority} size={13} />
-                    {item.label}
-                  </span>
-                  <span className="dashboard-priority-track">
-                    <i style={{ width: `${tasks.length ? (item.count / tasks.length) * 100 : 0}%` }} />
-                  </span>
-                  <strong>{item.count}</strong>
-                </div>
-              ))}
+      <div className="dash-strip" role="list" aria-label={text("议题状态", "Issue status")}>
+        {metrics.map((metric) => {
+          const percent = activeTasks.length ? Math.round((metric.value / activeTasks.length) * 100) : 0;
+          return (
+            <div className={`dash-strip-cell tone-${metric.tone}${metric.value === 0 ? " is-zero" : ""}`} key={metric.label} role="listitem">
+              <span className="dash-strip-name">{metric.label}</span>
+              <span className="dash-strip-value">
+                <strong>{metric.value}</strong>
+                {metric.value > 0 && <small>{percent}%</small>}
+              </span>
+              <span className="dash-strip-track" aria-hidden="true">
+                <i style={{ width: `${percent}%` }} />
+              </span>
             </div>
-          </section>
+          );
+        })}
+      </div>
 
-          <section className="dashboard-panel dashboard-primary-panel dashboard-attention-panel">
-            <header><span>{text("需要关注（未读、阻塞）", "Needs attention (unread, blocked)")}</span></header>
-            <div className="dashboard-task-list">
-              {attentionItems.length ? attentionItems.map((task) => (
-                <button
-                  type="button"
-                  className="dashboard-attention-row"
-                  onClick={() => onOpenTask(task)}
-                  key={task.id}
-                >
-                  <span className="dashboard-attention-mark" aria-hidden="true">
-                    {presentations[task.id]?.unread && <i />}
-                  </span>
-                  <strong>{task.title}</strong>
-                  <small>ID: {task.externalKey ?? task.identifier}</small>
-                </button>
-              )) : (
-                <div className="dashboard-empty">{text("当前没有需要关注的议题", "No issues need attention")}</div>
-              )}
-            </div>
-          </section>
+      <div className="dash-grid">
+        <DashboardProgressChart progressData={progressData} todayValue={todayValue} />
 
-          <section className="dashboard-panel dashboard-primary-panel dashboard-running-panel">
-            <header><span>{text("运行中对话", "Active conversations")}</span></header>
-            <div className="dashboard-task-list">
-              {runningTasks.length ? runningTasks.map((task) => (
-                <article
-                  className="dashboard-running-card"
-                  key={task.id}
-                  onClick={() => onOpenTask(task)}
-                >
+        <div className="dash-side">
+          <section className="dash-card dash-stack-card">
+              <header><span>{text("需要关注", "Needs attention")}</span><b>{attentionItems.length}</b></header>
+              <div className="dash-task-list">
+                {attentionItems.length ? attentionItems.map((task) => (
                   <button
                     type="button"
-                    className="dashboard-running-open"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onOpenTask(task);
-                    }}
+                    className="dash-task-row"
+                    onClick={() => onOpenTask(task)}
+                    key={task.id}
                   >
-                    <small>ID: {task.externalKey ?? task.identifier}</small>
-                    <strong>{task.title}</strong>
-                  </button>
-                  <div className="dashboard-running-footer">
-                    <span className="task-processing is-running">
-                      <img className="task-processing-glyph" src={processingAnimation} alt="" aria-hidden="true" />
-                      <span className="task-processing-label">{text("正在处理…", "Processing…")}</span>
+                    <span className="dash-task-mark" aria-hidden="true">
+                      {presentations[task.id]?.unread && <i />}
                     </span>
-                    <TaskConversationMenu
-                      conversations={presentations[task.id].conversations}
-                      onOpenConversation={onOpenConversation}
-                    />
-                  </div>
-                </article>
-              )) : (
-                <div className="dashboard-empty">{text("当前没有运行中的对话", "No active conversations")}</div>
-              )}
-            </div>
-          </section>
-
-          <section className="dashboard-panel dashboard-secondary-panel dashboard-role-panel">
-            <header><span>{text("角色贡献", "Role contributions")}</span><b>{roleContributions.length}</b></header>
-            {roleContributions.length ? (
-              <div className="dashboard-role-body">
-                <div className="dashboard-role-stack" aria-hidden="true">
-                  {roleContributions.filter((item) => item.count > 0).map((item, index) => (
-                    <i
-                      className={`tone-${index % 5}`}
-                      style={{ width: `${(item.count / completedTotal) * 100}%` }}
-                      key={`${item.actor.type}:${item.actor.id}`}
-                    />
-                  ))}
-                </div>
-                <div className="dashboard-role-list">
-                  {roleContributions.map((item, index) => (
-                    <div className="dashboard-role-row" key={`${item.actor.type}:${item.actor.id}`}>
-                      <ActorAvatar actor={actorKey(item.actor) === actorKey(currentUser) ? currentUser : item.actor} />
-                      <span className="dashboard-role-copy">
-                        <strong>{item.actor.name}</strong>
-                        <small>{text(
-                          `${item.count} 个已完成议题`,
-                          `${item.count} completed ${item.count === 1 ? "issue" : "issues"}`,
-                        )}</small>
-                      </span>
-                      <span className={`dashboard-role-share tone-${index % 5}`}>
-                        {Math.round((item.count / completedTotal) * 100)}%
-                      </span>
-                    </div>
-                  ))}
-                </div>
+                    <strong>{task.title}</strong>
+                    <small>{task.externalKey ?? task.identifier}</small>
+                  </button>
+                )) : (
+                  <div className="dash-empty">{text("都已处理完毕", "All caught up")}</div>
+                )}
               </div>
-            ) : (
-              <div className="dashboard-empty">{text("当前没有角色数据", "No role data")}</div>
-            )}
-          </section>
+            </section>
+          <section className="dash-card dash-stack-card">
+              <header><span>{text("即将到期", "Due soon")}</span><b>{upcomingTasks.length}</b></header>
+              <div className="dash-task-list">
+                {upcomingTasks.length ? upcomingTasks.map((task) => (
+                  <button
+                    type="button"
+                    className="dash-task-row"
+                    onClick={() => onOpenTask(task)}
+                    key={task.id}
+                  >
+                    <span className="dash-task-mark" aria-hidden="true">
+                      <img src={task.status === "in_review" ? dueDoneIcon : dueEditIcon} alt="" aria-hidden="true" />
+                    </span>
+                    <strong>{task.title}</strong>
+                    <small>{shortDate(task.dueDate!, locale)}</small>
+                  </button>
+                )) : (
+                  <div className="dash-empty">{text("没有临近的截止日期", "Nothing due soon")}</div>
+                )}
+              </div>
+            </section>
+        </div>
 
-          <section className="dashboard-panel dashboard-secondary-panel dashboard-contribution-panel">
-            <header><span>{text("贡献图", "Contribution chart")}</span></header>
-            <div className="dashboard-contribution-body">
-              <div className="dashboard-contribution-chart">
-                <div className="dashboard-contribution-months" aria-hidden="true">
+        <section className="dash-card dash-contribution-card">
+              <header><span>{text("贡献图", "Contribution chart")}</span></header>
+              {contributionTotal ? (
+              <div className="dash-contrib">
+                <div className="dash-contrib-months" aria-hidden="true">
                   {monthMarkers.map((marker) => (
                     <span
                       style={{ gridColumn: marker.weekIndex + 1 }}
@@ -926,20 +799,20 @@ export function DashboardView({
                     </span>
                   ))}
                 </div>
-                <div className="dashboard-contribution-main">
-                  <div className="dashboard-contribution-weekdays" aria-hidden="true">
+                <div className="dash-contrib-main">
+                  <div className="dash-contrib-days" aria-hidden="true">
                     <span style={{ gridRow: 2 }}>{text("一", "M")}</span>
                     <span style={{ gridRow: 4 }}>{text("三", "W")}</span>
                     <span style={{ gridRow: 6 }}>{text("五", "F")}</span>
                   </div>
-                  <div className="dashboard-contribution-grid" aria-label={text("过去一年议题贡献图", "Issue contributions over the past year")}>
+                  <div className="dash-contrib-grid" aria-label={text("过去一年议题贡献图", "Issue contributions over the past year")}>
                     {contributionWeeks.flat().map((day) => {
                       const level = day.count === 0
                         ? 0
                         : Math.min(4, Math.ceil((day.count / contributionMaximum) * 4));
                       return (
                         <span
-                          className={`dashboard-contribution-cell level-${level}${day.future ? " is-future" : ""}`}
+                          className={`dash-contrib-cell level-${level}${day.future ? " is-future" : ""}`}
                           title={day.future ? undefined : text(
                             `${contributionDateFormatter.format(day.date)} · ${day.count} 个议题更新`,
                             `${contributionDateFormatter.format(day.date)} · ${day.count} issue ${day.count === 1 ? "update" : "updates"}`,
@@ -950,65 +823,108 @@ export function DashboardView({
                     })}
                   </div>
                 </div>
-                <div className="dashboard-contribution-legend" aria-label={text("贡献强度图例", "Contribution intensity legend")}>
+                <div className="dash-contrib-legend" aria-label={text("贡献强度图例", "Contribution intensity legend")}>
                   <span>{text("少", "Less")}</span>
                   {[0, 1, 2, 3, 4].map((level) => (
-                    <i className={`dashboard-contribution-cell level-${level}`} key={level} />
+                    <i className={`dash-contrib-cell level-${level}`} key={level} />
                   ))}
                   <span>{text("多", "More")}</span>
                 </div>
               </div>
-            </div>
-          </section>
-
-          <section className="dashboard-panel dashboard-tertiary-panel dashboard-upcoming-panel">
-            <header><span>{text("即将到期", "Due soon")}</span></header>
-            <div className="dashboard-task-list">
-              {upcomingTasks.length ? upcomingTasks.map((task) => (
-                <button
-                  type="button"
-                  className="dashboard-upcoming-row"
-                  onClick={() => onOpenTask(task)}
-                  key={task.id}
-                >
-                  <img
-                    src={task.status === "in_review" ? dueDoneIcon : dueEditIcon}
-                    alt=""
-                    aria-hidden="true"
-                  />
-                  <strong>{task.title}</strong>
-                  <time>ID: {task.externalKey ?? task.identifier} | {shortDate(task.dueDate!, locale)}</time>
-                </button>
-              )) : (
-                <div className="dashboard-empty">{text("近期没有到期议题", "No issues are due soon")}</div>
+              ) : (
+                <div className="dash-empty">{text("完成议题后这里会出现一年内的更新记录", "Completed issues will appear here over the past year")}</div>
               )}
-            </div>
-          </section>
+            </section>
 
-          <section className="dashboard-panel dashboard-tertiary-panel dashboard-label-panel">
-            <header><span>{text("标签分布", "Label distribution")} {Math.min(12, labelCounts.length)}</span></header>
-            {visibleLabelCounts.length ? (
-              <div className="dashboard-label-chart">
-                {visibleLabelCounts.map((item) => (
-                  <div className="dashboard-label-chart-row" key={item.label}>
-                    <strong>{item.presentation.name}</strong>
-                    <span>{Math.round((item.count / totalLabelAssignments) * 100)}% | <b>{item.count}</b></span>
-                    <i
-                      aria-hidden="true"
-                      style={{
-                        width: `${(item.count / maximumVisibleLabelCount) * 100}%`,
-                        background: item.color,
-                      }}
+        <div className="dash-side">
+          <section className="dash-card dash-stack-card">
+              <header><span>{text("运行中对话", "Active conversations")}</span><b>{runningTasks.length}</b></header>
+              <div className="dash-task-list">
+                {runningTasks.length ? runningTasks.map((task) => (
+                  <article
+                    className="dash-task-row is-clickable"
+                    key={task.id}
+                    onClick={() => onOpenTask(task)}
+                  >
+                    <span className="dash-task-mark" aria-hidden="true">
+                      <img className="dash-task-spinner" src={processingAnimation} alt="" aria-hidden="true" />
+                    </span>
+                    <strong>{task.title}</strong>
+                    <small>{task.externalKey ?? task.identifier}</small>
+                    <TaskConversationMenu
+                      conversations={presentations[task.id].conversations}
+                      onOpenConversation={onOpenConversation}
                     />
-                  </div>
-                ))}
+                  </article>
+                )) : (
+                  <div className="dash-empty">{text("打开任一议题即可开始对话", "Open an issue to start a conversation")}</div>
+                )}
               </div>
-            ) : (
-              <div className="dashboard-empty">{text("当前没有标签数据", "No label data")}</div>
-            )}
-          </section>
+            </section>
+          <section className="dash-card dash-stack-card">
+              <header><span>{text("角色贡献", "Role contributions")}</span><b>{roleContributions.length}</b></header>
+              {roleContributions.length ? (
+                <div className="dash-role-list">
+                  {roleContributions.map((item, index) => (
+                    <div className="dash-role-row" key={`${item.actor.type}:${item.actor.id}`}>
+                      <ActorAvatar actor={actorKey(item.actor) === actorKey(currentUser) ? currentUser : item.actor} />
+                      <span className="dash-role-copy">
+                        <strong>{item.actor.name}</strong>
+                        <small>{text(
+                          `${item.count} 个已完成议题`,
+                          `${item.count} completed ${item.count === 1 ? "issue" : "issues"}`,
+                        )}</small>
+                      </span>
+                      <span className={`dash-role-share tone-${index % 5}`}>
+                        {Math.round((item.count / completedTotal) * 100)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="dash-empty">{text("完成议题后这里会出现成员贡献", "Member contributions appear here")}</div>
+              )}
+            </section>
+        </div>
 
-          <DashboardProgressChart progressData={progressData} todayValue={todayValue} />
+        <section className="dash-card dash-split-card">
+              <div className="dash-split-half">
+                <header><span>{text("优先级", "Priority")}</span></header>
+                <div className="dash-priority-list">
+                  {priorityCounts.map((item) => (
+                    <div className={`dash-priority-row priority-${item.priority}`} key={item.priority}>
+                      <span className="dash-priority-name">
+                        <PriorityIcon priority={item.priority} size={13} />
+                        {item.label}
+                      </span>
+                      <span className="dash-priority-track">
+                        <i style={{ width: `${tasks.length ? (item.count / tasks.length) * 100 : 0}%` }} />
+                      </span>
+                      <strong>{item.count}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="dash-split-divider" aria-hidden="true" />
+              <div className="dash-split-half">
+                <header><span>{text("标签分布", "Label distribution")}</span></header>
+                {visibleLabelCounts.length ? (
+                  <div className="dash-label-list">
+                    {visibleLabelCounts.map((item) => (
+                      <div className="dash-label-row" key={item.label}>
+                        <strong>{item.presentation.name}</strong>
+                        <span className="dash-label-meter" aria-hidden="true">
+                          <i style={{ width: `${(item.count / maximumVisibleLabelCount) * 100}%`, background: item.color }} />
+                        </span>
+                        <b>{item.count}</b>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="dash-empty">{text("给议题打上标签后这里会显示分布", "Label distribution appears here")}</div>
+                )}
+              </div>
+            </section>
         </div>
       </div>
     </div>
