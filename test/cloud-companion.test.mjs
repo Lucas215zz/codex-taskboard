@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { createServer } from "node:http";
 import os from "node:os";
@@ -10,6 +11,9 @@ import { main } from "../cli/taskctl.mjs";
 import { createTaskboardServer } from "../server/index.mjs";
 
 const temporaryDirectories = [];
+const packageVersion = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 
 test.afterEach(async () => {
   while (temporaryDirectories.length > 0) {
@@ -652,6 +656,7 @@ test("configured server proxies business APIs without touching local rows and ad
     const metadata = await fetch(`${baseUrl}/api/meta`).then((response) => response.json());
     assert.deepEqual(metadata, {
       capabilities: { localAiChat: true },
+      version: packageVersion,
       mode: "cloud",
       realtime: {
         transport: "websocket",
