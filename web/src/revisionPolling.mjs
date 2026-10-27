@@ -21,6 +21,7 @@ export function createRevisionPoller({
   let timer;
   let running = false;
   let requestPending = false;
+  let primed = false;
 
   async function poll() {
     if (!running || requestPending) return;
@@ -30,7 +31,8 @@ export function createRevisionPoller({
       if (!running) return;
       const advanced = result.revision > revision;
       revision = Math.max(revision, result.revision);
-      if (result.changed && advanced) onInvalidate();
+      if (primed && result.changed && advanced) onInvalidate();
+      primed = true;
     } catch {
       // Keep the current revision so the next interval retries the same boundary.
     } finally {
@@ -70,6 +72,7 @@ export function createRevisionWebSocketClient({
   let running = false;
   let requestPending = false;
   let reconnectAttempt = 0;
+  let primed = false;
 
   async function checkRevision() {
     if (!running || requestPending) return false;
@@ -79,7 +82,8 @@ export function createRevisionWebSocketClient({
       if (!running) return false;
       const advanced = result.revision > revision;
       revision = Math.max(revision, result.revision);
-      if (result.changed && advanced) onInvalidate();
+      if (primed && result.changed && advanced) onInvalidate();
+      primed = true;
       return true;
     } catch {
       return false;

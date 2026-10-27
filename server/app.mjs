@@ -46,6 +46,7 @@ import { createJiraConfigStore } from "./jira-config.mjs";
 import { createJiraIntegration } from "./jira-integration.mjs";
 import { ProjectSummaryService } from "./project-summary.mjs";
 import { TokenUsageCollector } from "./token-usage.mjs";
+import { CodexSessionUsageCollector } from "./token-usage-sessions.mjs";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const execFileAsync = promisify(execFile);
@@ -1474,6 +1475,18 @@ export function createTaskboardServer(options = {}) {
       : {}),
   });
   tokenUsageCollector.start();
+  const codexSessionUsageCollector = options.codexSessionUsageCollector
+    ?? new CodexSessionUsageCollector({
+      codexHome: path.dirname(resolved.codexStatePath),
+      dataDirectory: resolved.dataDirectory,
+      ...(resolved.tokenUsageUploadUrl !== undefined
+        ? { uploadUrl: resolved.tokenUsageUploadUrl }
+        : {}),
+      ...(resolved.tokenUsageUploadToken !== undefined
+        ? { uploadToken: resolved.tokenUsageUploadToken }
+        : {}),
+    });
+  codexSessionUsageCollector.start();
   let hostRuntime = null;
   function currentHostThreadBinding(threadId) {
     if (
@@ -3366,6 +3379,7 @@ export function createTaskboardServer(options = {}) {
       for (const response of aiEventResponses) response.end();
       aiEventResponses.clear();
       await aiChat.close();
+      await codexSessionUsageCollector.close();
       await tokenUsageCollector.close();
       await projectSummary.close();
       await serverClosed;

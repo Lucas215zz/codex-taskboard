@@ -631,6 +631,7 @@ function LocalRealtimeSync({
   useEffect(() => {
     const source = new EventSource(eventsUrl);
     let refreshTimer: number | undefined;
+    let sseConnected = false;
     let refreshProjectsPending = false;
     const pendingTaskProjects = new Set<string | undefined>();
 
@@ -726,7 +727,8 @@ function LocalRealtimeSync({
       setConnection("live");
       const { selectedProjectId, detailTaskId } = selectionRef.current;
       void refreshProjectBoardDisplaySettings();
-      scheduleRefresh({ projects: true, tasks: Boolean(selectedProjectId) });
+      if (sseConnected) scheduleRefresh({ projects: true, tasks: Boolean(selectedProjectId) });
+      sseConnected = true;
       if (selectedProjectId && selectedProjectId !== ALL_PROJECTS_ID) {
         setReadmeRevision((current) => current + 1);
       }
@@ -890,6 +892,7 @@ export function App() {
   const [automationCatalogError, setAutomationCatalogError] = useState<string | null>(null);
   const projectsRequestRef = useRef(0);
   const tasksRequestRef = useRef(0);
+  const tasksInFlightRef = useRef<Map<string, Promise<void>>>(new Map());
   const tasksRef = useRef<Task[]>([]);
   const undoSequenceRef = useRef(0);
   const undoStackRef = useRef<UndoOperation[]>([]);
@@ -2236,38 +2239,46 @@ export function App() {
     projectId: string,
     options: { quiet?: boolean; signal?: AbortSignal } = {},
   ) => {
+    const inFlightKey = projectId === ALL_PROJECTS_ID ? "__all__" : projectId;
+    const inFlight = tasksInFlightRef.current.get(inFlightKey);
+    if (inFlight) return inFlight;
     const requestId = ++tasksRequestRef.current;
     if (!options.quiet) setTasksLoading(true);
     setTasksLoadError((current) => (
       current ? { ...current, requestId } : current
     ));
-    try {
-      const taskProjectId = projectId === ALL_PROJECTS_ID ? undefined : projectId;
-      const [nextTasks, nextArchivedTasks] = await Promise.all([
-        listTasks(taskProjectId, options.signal),
-        listArchivedTasks(taskProjectId, options.signal),
-      ]);
-      if (requestId !== tasksRequestRef.current) return;
-      setTasks(sortTasks(nextTasks));
-      setArchivedTasks(sortTasks(nextArchivedTasks));
-      setProjects((current) => current.map((project) => {
-        if (project.id !== projectId || project.source !== "jira") return project;
-        const labels = [...new Set(nextTasks.flatMap((task) => task.labels))];
-        return JSON.stringify(labels) === JSON.stringify(project.labels)
-          ? project
-          : { ...project, labels };
-      }));
-      setHasLoadedTasks(true);
-      setTasksLoadError((current) => (
-        current?.requestId === requestId ? null : current
-      ));
-    } catch (error) {
-      if ((error as Error).name !== "AbortError" && requestId === tasksRequestRef.current) {
-        setTasksLoadError({ source: "tasks", requestId, message: errorMessage(error) });
+    const request = (async () => {
+      try {
+        const taskProjectId = projectId === ALL_PROJECTS_ID ? undefined : projectId;
+        const [nextTasks, nextArchivedTasks] = await Promise.all([
+          listTasks(taskProjectId, options.signal),
+          listArchivedTasks(taskProjectId, options.signal),
+        ]);
+        if (requestId !== tasksRequestRef.current) return;
+        setTasks(sortTasks(nextTasks));
+        setArchivedTasks(sortTasks(nextArchivedTasks));
+        setProjects((current) => current.map((project) => {
+          if (project.id !== projectId || project.source !== "jira") return project;
+          const labels = [...new Set(nextTasks.flatMap((task) => task.labels))];
+          return JSON.stringify(labels) === JSON.stringify(project.labels)
+            ? project
+            : { ...project, labels };
+        }));
+        setHasLoadedTasks(true);
+        setTasksLoadError((current) => (
+          current?.requestId === requestId ? null : current
+        ));
+      } catch (error) {
+        if ((error as Error).name !== "AbortError" && requestId === tasksRequestRef.current) {
+          setTasksLoadError({ source: "tasks", requestId, message: errorMessage(error) });
+        }
+      } finally {
+        tasksInFlightRef.current.delete(inFlightKey);
+        if (!options.quiet && requestId === tasksRequestRef.current) setTasksLoading(false);
       }
-    } finally {
-      if (!options.quiet && requestId === tasksRequestRef.current) setTasksLoading(false);
-    }
+    })();
+    tasksInFlightRef.current.set(inFlightKey, request);
+    return request;
   }, []);
 
   useEffect(() => {
@@ -3787,7 +3798,8 @@ export function App() {
                 aria-label={text("看看大家用了多少 Token", "See others' token usage")}
                 title={text("看看大家用了多少 Token", "See others' token usage")}
               >
-                <span>{text("看看大家用了多少 Token", "See others' token usage")}</span>
+                <span className="header-token-link-label">{text("Token 榜单", "Token ranking")}</span>
+                <span className="header-token-link-badge">{text("NEW", "NEW")}</span>
                 <LinearIcon name="openExternal" />
               </a>
             )}
