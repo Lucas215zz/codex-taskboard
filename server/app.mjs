@@ -15,6 +15,7 @@ import {
 } from "../shared/api-fields.mjs";
 import { createHmac, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { chmod, mkdir, open, readFile, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { isIP } from "node:net";
@@ -1387,10 +1388,23 @@ export function resolveServerOptions(options = {}) {
     instanceToken,
     instanceSecret,
     trustedOrigins: parseTrustedOrigins(environment[TRUSTED_ORIGINS_ENV]),
-    version: String(
-      options.version ?? environment.CODEX_TASKBOARD_VERSION ?? "development",
-    ).trim(),
+    version: resolveServerVersion(options, environment),
   };
+}
+
+function resolveServerVersion(options = {}, environment = {}) {
+  const explicit = String(options.version ?? environment.CODEX_TASKBOARD_VERSION ?? "").trim();
+  if (explicit) return explicit;
+  try {
+    const manifest = JSON.parse(
+      readFileSync(path.join(PROJECT_ROOT, "package.json"), "utf8"),
+    );
+    const manifestVersion = typeof manifest?.version === "string" ? manifest.version.trim() : "";
+    if (manifestVersion) return manifestVersion;
+  } catch {
+    // Packaged builds do not ship package.json; they inject CODEX_TASKBOARD_VERSION instead.
+  }
+  return "development";
 }
 
 export function resolvePort(value = process.env.CODEX_TASKBOARD_PORT ?? "47823") {
@@ -2146,6 +2160,7 @@ export function createTaskboardServer(options = {}) {
         }
         return sendJson(response, 200, {
           ...(configuredTrustedRequest ? {} : { manageTaskboardSkillPath: resolved.skillPath }),
+          version: resolved.version,
           capabilities: {
             localAiChat: !configuredTrustedRequest
               && isLoopbackAddress(request.socket.remoteAddress),

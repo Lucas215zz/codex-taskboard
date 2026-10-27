@@ -84,6 +84,7 @@ import {
 import { ProjectAutomationMenu } from "./components/ProjectAutomationMenu";
 import { TaskboardIcon } from "./components/TaskboardIcon";
 import { TaskContextMenu } from "./components/TaskContextMenu";
+import { VersionBadge } from "./components/VersionBadge";
 import { TaskDetail } from "./components/TaskDetail";
 import {
   TaskEditor,
@@ -2148,6 +2149,7 @@ export function App() {
         && current.mode === metadata.mode
         && JSON.stringify(current.realtime) === JSON.stringify(metadata.realtime)
         && current.manageTaskboardSkillPath === metadata.manageTaskboardSkillPath
+        && current.version === metadata.version
         && current.localCapabilities?.available === metadata.localCapabilities?.available
           ? current
           : metadata
@@ -3789,6 +3791,7 @@ export function App() {
           <div ref={dragRegionRef} className="workspace-drag-region" aria-hidden="true" />
 
           <div className="header-actions">
+            <VersionBadge version={taskboardMetadata?.version} />
             {tokenUsageKnown && (
               <a
                 className="header-project-button header-token-link"

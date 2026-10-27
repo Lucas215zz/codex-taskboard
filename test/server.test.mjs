@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { access, chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import os from "node:os";
@@ -11,6 +12,9 @@ import { WebSocket, WebSocketServer } from "ws";
 import { createTaskboardServer, resolveServerOptions } from "../server/index.mjs";
 
 const runningApps = [];
+const packageVersion = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version;
 
 afterEach(async () => {
   while (runningApps.length > 0) {
@@ -113,6 +117,7 @@ test("health and the default local project are available", async () => {
   assert.equal(metadata.response.status, 200);
   assert.deepEqual(metadata.body, {
     manageTaskboardSkillPath: skillPath,
+    version: packageVersion,
     capabilities: { localAiChat: true },
   });
 
@@ -552,6 +557,7 @@ test("trusted HTTPS origins do not inherit device-local capabilities from tunnel
   assert.equal(metadata.response.status, 200);
   assert.deepEqual(metadata.body, {
     capabilities: { localAiChat: false },
+    version: packageVersion,
     mode: "cloud",
     realtime: {
       transport: "websocket",
@@ -585,6 +591,7 @@ test("trusted HTTPS origins do not inherit device-local capabilities from tunnel
   assert.equal(localMetadata.response.status, 200);
   assert.deepEqual(localMetadata.body, {
     manageTaskboardSkillPath: skillPath,
+    version: packageVersion,
     capabilities: { localAiChat: true },
     mode: "cloud",
     realtime: {
