@@ -2,8 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import "./DashboardView.css";
-import dueDoneIcon from "../assets/figma-taskboard/dashboard-due-done.svg";
-import dueEditIcon from "../assets/figma-taskboard/dashboard-due-edit.svg";
 import processingAnimation from "../assets/figma-taskboard/loading-16.svg";
 import { getProjectSummary } from "../api";
 import { taskPriorityLabel, taskStatusLabel, useTaskboardI18n } from "../i18n";
@@ -88,11 +86,6 @@ function dateKey(value: Date) {
 
 function dayValue(value: string) {
   return new Date(`${value}T00:00:00`).getTime();
-}
-
-function shortDate(value: string, locale: string) {
-  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" })
-    .format(new Date(`${value}T12:00:00`));
 }
 
 function DashboardSummary({
@@ -229,7 +222,7 @@ export function DashboardView({
   const todayValue = today.getTime();
 
   const {
-    activeTasks, completedTasks, overdueTasks, upcomingTasks, projectCompletion,
+    activeTasks, completedTasks, overdueTasks, projectCompletion,
     roleContributions, completedTotal, priorityCounts, labelCounts, totalLabelAssignments,
     visibleLabelCounts, maximumVisibleLabelCount, contributionWeeks, contributionMaximum, contributionTotal,
       contributionDateFormatter, monthMarkers, metrics,
@@ -238,10 +231,8 @@ export function DashboardView({
     const activeTasks = tasks.filter((task) => task.status !== "done" && task.status !== "canceled");
     const completedTasks = tasks.filter((task) => task.status === "done");
     const overdueTasks = activeTasks.filter((task) => task.dueDate && dayValue(task.dueDate) < todayValue);
-    const upcomingTasks = activeTasks
-      .filter((task) => task.dueDate && dayValue(task.dueDate) <= upcomingEnd)
-      .sort((left, right) => (left.dueDate ?? "").localeCompare(right.dueDate ?? ""))
-      .slice(0, 5);
+    const upcomingCount = activeTasks
+      .filter((task) => task.dueDate && dayValue(task.dueDate) <= upcomingEnd).length;
     const projectCompletion = calculateProjectCompletion(tasks);
     const roleContributionMap = new Map<string, { actor: Task["assignee"]; count: number }>();
     for (const task of tasks) {
@@ -283,15 +274,15 @@ export function DashboardView({
       1,
       labelCounts.reduce((total, item) => total + item.count, 0),
     );
-    const visibleLabelCounts = (labelCounts.length > 12
+    const visibleLabelCounts = (labelCounts.length > 8
       ? [
-          ...labelCounts.slice(0, 11),
+          ...labelCounts.slice(0, 7),
           {
             label: "__other__",
-            count: labelCounts.slice(11).reduce((total, item) => total + item.count, 0),
+            count: labelCounts.slice(7).reduce((total, item) => total + item.count, 0),
             presentation: {
               ...labelPresentation("其他"),
-              name: text(`其他（${labelCounts.length - 11}个）`, `Other (${labelCounts.length - 11})`),
+              name: text(`其他（${labelCounts.length - 7}个）`, `Other (${labelCounts.length - 7})`),
             },
           },
         ]
@@ -345,6 +336,11 @@ export function DashboardView({
         tone: "progress",
       },
       {
+        label: text("待办", "To do"),
+        value: tasks.filter((task) => task.status === "todo").length,
+        tone: "todo",
+      },
+      {
         label: taskStatusLabel(language, "in_review"),
         value: tasks.filter((task) => task.status === "in_review").length,
         tone: "review",
@@ -356,14 +352,14 @@ export function DashboardView({
       },
       { label: text("已逾期", "Overdue"), value: overdueTasks.length, tone: "overdue" },
       {
-        label: taskStatusLabel(language, "backlog"),
-        value: tasks.filter((task) => task.status === "backlog").length,
-        tone: "backlog",
+        label: text("两周内到期", "Due in 2 weeks"),
+        value: upcomingCount,
+        tone: "due",
       },
     ];
 
     return {
-      activeTasks, completedTasks, overdueTasks, upcomingTasks, projectCompletion,
+      activeTasks, completedTasks, overdueTasks, projectCompletion,
       roleContributions, completedTotal, priorityCounts, labelCounts, totalLabelAssignments,
       visibleLabelCounts, maximumVisibleLabelCount, contributionWeeks, contributionMaximum, contributionTotal,
       contributionDateFormatter, monthMarkers, metrics,
@@ -410,15 +406,29 @@ export function DashboardView({
         <section className="dash-hero">
         <div className="dash-hero-copy">
           <span className="dash-hero-label">{text("项目完成度", "Project completion")}</span>
-          <strong className="dash-hero-num">{projectCompletion.percentage}<i>%</i></strong>
-          <p>{text(
-            projectCompletion.parentCount > 0
-              ? `${summaryDate} · ${projectCompletion.completedParents}/${projectCompletion.parentCount} 个顶层议题完成 · ${completedTasks.length} 个议题已完成`
-              : `${summaryDate} · 暂无可计算的议题`,
-            projectCompletion.parentCount > 0
-              ? `${summaryDate} · ${projectCompletion.completedParents}/${projectCompletion.parentCount} top-level issues complete · ${completedTasks.length} issues complete`
-              : `${summaryDate} · No issues to calculate`,
-          )}</p>
+          <div className="dash-hero-figure">
+            <strong className="dash-hero-num">{projectCompletion.percentage}<i>%</i></strong>
+            <ul className="dash-hero-stats">
+              <li>
+                <b>{projectCompletion.parentCount > 0
+                  ? `${projectCompletion.completedParents}/${projectCompletion.parentCount}`
+                  : "—"}</b>
+                <span>{text("顶层议题完成", "Top-level done")}</span>
+              </li>
+              <li>
+                <b>{tasks.length}</b>
+                <span>{text("议题总数", "Issues")}</span>
+              </li>
+              <li>
+                <b>{completedTasks.length}</b>
+                <span>{text("已完成", "Completed")}</span>
+              </li>
+              <li>
+                <b>{activeTasks.length}</b>
+                <span>{text("未结束", "Open")}</span>
+              </li>
+            </ul>
+          </div>
         </div>
         <DashboardSummary
             projectId={projectId}
@@ -431,16 +441,11 @@ export function DashboardView({
 
       <div className="dash-strip" role="list" aria-label={text("议题状态", "Issue status")}>
         {metrics.map((metric) => {
-          const percent = activeTasks.length ? Math.round((metric.value / activeTasks.length) * 100) : 0;
           return (
             <div className={`dash-strip-cell tone-${metric.tone}${metric.value === 0 ? " is-zero" : ""}`} key={metric.label} role="listitem">
               <span className="dash-strip-name">{metric.label}</span>
               <span className="dash-strip-value">
                 <strong>{metric.value}</strong>
-                {metric.value > 0 && <small>{percent}%</small>}
-              </span>
-              <span className="dash-strip-track" aria-hidden="true">
-                <i style={{ width: `${percent}%` }} />
               </span>
             </div>
           );
@@ -504,27 +509,6 @@ export function DashboardView({
             </section>
 
         <div className="dash-side">
-          {upcomingTasks.length ? (
-            <section className="dash-card dash-stack-card">
-                <header><span>{text("即将到期", "Due soon")}</span><b>{upcomingTasks.length}</b></header>
-                <div className="dash-task-list">
-                  {upcomingTasks.map((task) => (
-                    <button
-                      type="button"
-                      className="dash-task-row"
-                      onClick={() => onOpenTask(task)}
-                      key={task.id}
-                    >
-                      <span className="dash-task-mark" aria-hidden="true">
-                        <img src={task.status === "in_review" ? dueDoneIcon : dueEditIcon} alt="" aria-hidden="true" />
-                      </span>
-                      <strong>{task.title}</strong>
-                      <small>{shortDate(task.dueDate!, locale)}</small>
-                    </button>
-                  ))}
-                </div>
-              </section>
-          ) : null}
           {runningTasks.length ? (
             <section className="dash-card dash-stack-card">
                 <header><span>{text("运行中对话", "Active conversations")}</span><b>{runningTasks.length}</b></header>

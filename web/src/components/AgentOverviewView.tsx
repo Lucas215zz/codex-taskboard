@@ -170,6 +170,20 @@ function focusTaskLabel(task: Task, now: number, language: TaskboardLanguage) {
   return taskPriorityLabel(language, task.priority);
 }
 
+function shortDueDate(value: string, language: TaskboardLanguage) {
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", { month: "short", day: "numeric" })
+    .format(new Date(`${value}T12:00:00`));
+}
+
+function dueTone(task: Task, now: number) {
+  if (!task.dueDate) return "";
+  const due = new Date(`${task.dueDate}T00:00:00`).getTime();
+  const today = startOfToday(now);
+  if (due < today) return "is-overdue";
+  if (due <= today + 3 * DAY_MS) return "is-soon";
+  return "";
+}
+
 /* ---------- pipeline bar ---------- */
 
 function Pipeline({
@@ -565,6 +579,7 @@ export function AgentOverviewView({
   }, []);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [projectsExpanded, setProjectsExpanded] = useState(false);
   const [settings, setSettings] = useState<DepartmentSettings>(DEFAULT_DEPARTMENT_SETTINGS);
 
   useEffect(() => {
@@ -787,7 +802,14 @@ export function AgentOverviewView({
                 >
                   <span className="dashboard-focus-card-top">
                     <span className="dashboard-focus-id">{task.identifier}</span>
-                    <span className="dashboard-focus-label">{focusTaskLabel(task, now, language)}</span>
+                    <span className="dashboard-focus-tags">
+                      <span className="dashboard-focus-label">{focusTaskLabel(task, now, language)}</span>
+                      {task.dueDate && (
+                        <span className={`dashboard-focus-due ${dueTone(task, now)}`}>
+                          {shortDueDate(task.dueDate, language)}
+                        </span>
+                      )}
+                    </span>
                   </span>
                   <strong>{task.title}</strong>
                   <span className="dashboard-focus-meta">{taskStatusLabel(language, task.status)}</span>
@@ -846,8 +868,40 @@ export function AgentOverviewView({
               <h2>{text("项目进展", "Projects")}</h2>
             </div>
             <span className="dashboard-section-count">{summaries.length} {text("个项目", "projects")}</span>
+            <button
+              type="button"
+              className={`dashboard-projects-toggle${projectsExpanded ? " is-open" : ""}`}
+              aria-expanded={projectsExpanded}
+              onClick={() => setProjectsExpanded((previous) => !previous)}
+            >
+              {projectsExpanded ? text("收起", "Collapse") : text("展开全部", "Expand all")}
+              <i aria-hidden="true">⌄</i>
+            </button>
           </div>
-          {departmentsSummary.map((unit) => {
+          {!projectsExpanded ? (
+            <div className="dashboard-project-chips">
+              {summaries.map((project, index) => (
+                <button
+                  type="button"
+                  className="dashboard-project-chip"
+                  key={project.projectId}
+                  onClick={() => onSelectProject(project.projectId)}
+                  title={text("打开项目", "Open project")}
+                >
+                  <strong>
+                    {hideNames
+                      ? `${text("项目", "Project")} ${String.fromCharCode(65 + index)}`
+                      : project.name}
+                  </strong>
+                  <span>
+                    {project.counts.todo} {text("待办", "todo")}
+                    {" · "}
+                    {project.counts.inProgress} {text("处理中", "doing")}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : departmentsSummary.map((unit) => {
             const automationOn = unit.automationActiveCount > 0;
             const automationAll = unit.projects.length > 0
               && unit.automationActiveCount === unit.projects.length;
