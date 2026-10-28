@@ -110,6 +110,24 @@ function sendEmpty(response, status, headers = {}) {
   response.end();
 }
 
+// Two collectors feed the same upload account: the app-server chat channel and
+// the Codex session scanner. The panel only needs one truthful status, so the
+// newest upload wins and queued events are summed.
+function mergeTokenUsageStatus(primary, secondary) {
+  const primaryAt = primary.lastUploadAt ? Date.parse(primary.lastUploadAt) : 0;
+  const secondaryAt = secondary.lastUploadAt ? Date.parse(secondary.lastUploadAt) : 0;
+  const newer = primaryAt >= secondaryAt ? primary : secondary;
+  const older = primaryAt >= secondaryAt ? secondary : primary;
+  return {
+    enabled: primary.enabled,
+    uploadUrl: primary.uploadUrl,
+    hasUploadToken: primary.hasUploadToken,
+    queuedEvents: (primary.queuedEvents ?? 0) + (secondary.queuedEvents ?? 0),
+    lastUploadAt: newer.lastUploadAt ?? older.lastUploadAt,
+    lastUploadError: newer.lastUploadError ?? older.lastUploadError,
+  };
+}
+
 function toFetchRequest(request) {
   const headers = new Headers();
   for (const [name, value] of Object.entries(request.headers)) {
@@ -2181,7 +2199,12 @@ export function createTaskboardServer(options = {}) {
       if (pathname === "/api/local/token-usage") {
         assertNoQuery(url.searchParams, "Token usage settings");
         if (request.method === "GET") {
-          return sendJson(response, 200, { tokenUsage: await tokenUsageCollector.status() });
+          return sendJson(response, 200, {
+            tokenUsage: mergeTokenUsageStatus(
+              await tokenUsageCollector.status(),
+              await codexSessionUsageCollector.status(),
+            ),
+          });
         }
         if (request.method === "PATCH") {
           const body = await readJson(request);
@@ -2249,7 +2272,16 @@ export function createTaskboardServer(options = {}) {
         if (request.method !== "POST") return methodNotAllowed(response, ["POST"]);
         assertNoQuery(url.searchParams, "Token usage flush");
         await assertEmptyRequestBody(request, "POST /api/local/token-usage/flush");
-        return sendJson(response, 200, { result: await tokenUsageCollector.flush() });
+        const [chat, session] = await Promise.all([
+          tokenUsageCollector.flush(),
+          codexSessionUsageCollector.flush(),
+        ]);
+        return sendJson(response, 200, {
+          result: {
+            uploaded: chat.uploaded + session.uploaded,
+            queued: chat.queued + session.queued,
+          },
+        });
       }
 
       if (pathname === "/api/local/ai/catalog") {

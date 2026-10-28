@@ -1124,10 +1124,10 @@
 
 .dashboard-focus-card {
   display: flex;
-  min-height: 118px;
+  min-height: 96px;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
+  gap: 9px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
   border-top: 2px solid var(--status-todo);
   border-radius: 16px;
@@ -1185,6 +1185,33 @@
   white-space: nowrap;
 }
 
+.dashboard-focus-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.dashboard-focus-due {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dashboard-focus-due.is-soon {
+  background: color-mix(in srgb, var(--status-progress) 18%, transparent);
+  color: var(--status-progress);
+}
+
+.dashboard-focus-due.is-overdue {
+  background: color-mix(in srgb, var(--status-blocked) 18%, transparent);
+  color: var(--status-blocked);
+}
+
 .dashboard-focus-card strong {
   display: -webkit-box;
   overflow: hidden;
@@ -1206,7 +1233,79 @@
 }
 
 .dashboard-projects {
-  margin-top: 40px;
+  margin-top: 28px;
+}
+
+.dashboard-projects .dashboard-section-heading {
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.dashboard-projects .dashboard-section-count {
+  margin-left: auto;
+}
+
+.dashboard-projects-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dashboard-projects-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.dashboard-projects-toggle i {
+  font-style: normal;
+  transition: transform 140ms ease;
+}
+
+.dashboard-projects-toggle.is-open i {
+  transform: rotate(180deg);
+}
+
+.dashboard-project-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dashboard-project-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.dashboard-project-chip:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.dashboard-project-chip strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dashboard-project-chip span {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .dashboard-group {

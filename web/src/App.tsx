@@ -46,6 +46,7 @@ import {
   setApiText,
   setCurrentUserActor,
   syncJiraConnection,
+  type TokenUsageStatus,
   uploadAttachment,
   updateTask as updateTaskRequest,
 } from "./api";
@@ -154,7 +155,6 @@ import { createRevisionPoller, createRevisionWebSocketClient, getRevisionPolling
 type ConnectionState = "connecting" | "live" | "reconnecting";
 type Theme = "light" | "dark";
 type BoardView = "readme" | "overview" | "issues" | "list" | "gantt";
-type OverviewTab = "today" | "projects";
 type DetailSourceScroll =
   | { projectId: string; view: "issues"; status: TaskStatus; scrollTop: number; scrollLeft: number }
   | { projectId: string; view: "list"; scrollTop: number };
@@ -322,7 +322,6 @@ const ALL_PROJECTS_DEFAULT_BOARD_DISPLAY_SETTINGS: BoardDisplaySettings = {
 };
 const RECENT_PROJECT_IDS_KEY = "taskboard.recentProjectIds.v1";
 const PROJECT_VIEW_KEY_PREFIX = "taskboard.project-view.v1.";
-const OVERVIEW_TAB_KEY_PREFIX = "taskboard.overview-tab.v1.";
 const DEVICE_WORKSPACE_PATHS_KEY = "taskboard.deviceWorkspacePaths.v1";
 const PROJECT_CODEX_IDENTITIES_KEY = "taskboard.projectCodexIdentities.v1";
 const PROJECT_AUTOMATIONS_KEY = "taskboard.projectAutomations.v1";
@@ -334,18 +333,63 @@ function issueReadStorageKey(mode: string, task: Pick<Task, "id" | "projectId">)
 
 function readProjectBoardView(projectId: string): BoardView {
   const view = taskboardStorage.getItem(`${PROJECT_VIEW_KEY_PREFIX}${projectId}`);
-  // Older builds stored the two overview halves as separate board views.
-  if (view === "dashboard" || view === "agents") return "overview";
   return view === "readme" || view === "overview" || view === "list" || view === "gantt" || view === "issues"
     ? view
     : "overview";
 }
 
-function readOverviewTab(projectId: string): OverviewTab {
-  const stored = taskboardStorage.getItem(`${OVERVIEW_TAB_KEY_PREFIX}${projectId}`);
-  if (stored === "projects" || stored === "today") return stored;
-  const legacyView = taskboardStorage.getItem(`${PROJECT_VIEW_KEY_PREFIX}${projectId}`);
-  return legacyView === "agents" ? "projects" : "today";
+const TOKEN_USAGE_STATUS_INTERVAL_MS = 60_000;
+
+interface TokenUsageBadge {
+  tone: "idle" | "ok" | "warn" | "error";
+  label: string;
+  title: string;
+}
+
+// The header badge tells the user, without opening anything, whether their
+// usage is still reaching the ranking site.
+function tokenUsageBadge(
+  status: TokenUsageStatus | null,
+  text: (chinese: string, english: string) => string,
+): TokenUsageBadge {
+  if (!status) {
+    return {
+      tone: "idle",
+      label: text("服务未响应", "Offline"),
+      title: text("本机服务没有响应，无法确认 Token 是否在上", "The local service did not answer"),
+    };
+  }
+  if (!status.hasUploadToken) {
+    return {
+      tone: "idle",
+      label: text("未连接", "Not linked"),
+      title: text("还没有连接 Token 榜单账号", "No ranking account is connected yet"),
+    };
+  }
+  if (status.lastUploadError) {
+    return {
+      tone: "error",
+      label: text("上传失败", "Failed"),
+      title: status.lastUploadError,
+    };
+  }
+  if (!status.lastUploadAt) {
+    return {
+      tone: "warn",
+      label: text("等待同步", "Syncing"),
+      title: text("还没有上传过用量", "No usage has been uploaded yet"),
+    };
+  }
+  const uploadedAt = new Date(status.lastUploadAt);
+  const ageMinutes = Math.max(0, Math.floor((Date.now() - uploadedAt.getTime()) / 60_000));
+  const title = `${text("最近一次上传", "Last upload")}：${uploadedAt.toLocaleString()}`;
+  if (ageMinutes < 5) {
+    return { tone: "ok", label: text("已同步", "Synced"), title };
+  }
+  if (ageMinutes < 60) {
+    return { tone: "warn", label: `${ageMinutes} ${text("分钟前", "min")}`, title };
+  }
+  return { tone: "warn", label: `${Math.floor(ageMinutes / 60)} ${text("小时前", "h")}`, title };
 }
 
 function readProjectBoardDisplaySettings(): Record<string, BoardDisplaySettings> {
@@ -779,7 +823,7 @@ export function App() {
   const [manageTaskboardSkillPath, setManageTaskboardSkillPath] = useState("");
   const [taskboardMetadata, setTaskboardMetadata] = useState<TaskboardMetadata | null>(null);
   const [localAiChatAvailable, setLocalAiChatAvailable] = useState(false);
-  const [tokenUsageKnown, setTokenUsageKnown] = useState(false);
+  const [tokenUsageStatus, setTokenUsageStatus] = useState<TokenUsageStatus | null>(null);
   const [aiImportReadyProjectId, setAiImportReadyProjectId] = useState<string | null>(null);
   const [aiThreads, setAiThreads] = useState<AiChatThread[]>([]);
   const [aiOpenThreadRequest, setAiOpenThreadRequest] = useState<AiChatOpenThreadRequest | null>(null);
@@ -819,7 +863,6 @@ export function App() {
   const [filters, setFilters] = useState(readTaskFilters);
   const [taskSort, setTaskSort] = useState<TaskSort>("default");
   const [boardView, setBoardView] = useState<BoardView>(() => readProjectBoardView(initialProjectId));
-  const [overviewTab, setOverviewTab] = useState<OverviewTab>(() => readOverviewTab(initialProjectId));
   const [projectBoardDisplaySettings, setProjectBoardDisplaySettings] = useState(
     readProjectBoardDisplaySettings,
   );
@@ -941,16 +984,20 @@ export function App() {
   useEffect(() => {
     if (!taskboardMetadata || taskboardMetadata.mode === "cloud") return;
     let cancelled = false;
-    void getTokenUsageStatus()
-      .then(() => {
-        if (cancelled) return;
-        setTokenUsageKnown(true);
-      })
-      .catch(() => {
-        if (!cancelled) setTokenUsageKnown(false);
-      });
+    const load = () => {
+      void getTokenUsageStatus()
+        .then((status) => {
+          if (!cancelled) setTokenUsageStatus(status);
+        })
+        .catch(() => {
+          if (!cancelled) setTokenUsageStatus(null);
+        });
+    };
+    load();
+    const timer = setInterval(load, TOKEN_USAGE_STATUS_INTERVAL_MS);
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, [taskboardMetadata]);
 
@@ -963,6 +1010,11 @@ export function App() {
     url.searchParams.set("return", window.location.href);
     return url.toString();
   }, []);
+
+  const tokenUsageBadgeState = useMemo(
+    () => tokenUsageBadge(tokenUsageStatus, text),
+    [tokenUsageStatus, text],
+  );
 
   const markDashboardSummaryAnimationStarted = useCallback((projectId: string) => {
     setDashboardSummaryAnimatedProjectId(projectId);
@@ -1908,23 +1960,16 @@ export function App() {
   useEffect(() => {
     if (selectedProjectId) {
       setBoardView(readProjectBoardView(selectedProjectId));
-      // taskboardStorage hydrates asynchronously, so the initial state is a
-      // guess; re-read once the server snapshot is available. Only adopt a
-      // value that actually exists, otherwise keep the default or the user's
-      // explicit choice.
-      if (taskboardStorage.getItem(`${OVERVIEW_TAB_KEY_PREFIX}${selectedProjectId}`)) {
-        setOverviewTab(readOverviewTab(selectedProjectId));
-      }
     }
   }, [selectedProjectId]);
 
   useEffect(() => {
     if (!selectedProjectId) {
       setDashboardSummaryAnimatedProjectId(null);
-    } else if (boardView !== "overview" || overviewTab !== "today") {
+    } else if (boardView !== "overview") {
       setDashboardSummaryAnimatedProjectId(selectedProjectId);
     }
-  }, [boardView, overviewTab, selectedProjectId]);
+  }, [boardView, selectedProjectId]);
 
   useEffect(() => {
     writeTaskFilters(filters);
@@ -2630,13 +2675,6 @@ export function App() {
     setBoardView(view);
     if (selectedProjectId) {
       taskboardStorage.setItem(`${PROJECT_VIEW_KEY_PREFIX}${selectedProjectId}`, view);
-    }
-  }
-
-  function selectOverviewTab(tab: OverviewTab) {
-    setOverviewTab(tab);
-    if (selectedProjectId) {
-      taskboardStorage.setItem(`${OVERVIEW_TAB_KEY_PREFIX}${selectedProjectId}`, tab);
     }
   }
 
@@ -3792,17 +3830,20 @@ export function App() {
 
           <div className="header-actions">
             <VersionBadge version={taskboardMetadata?.version} />
-            {tokenUsageKnown && (
+            {tokenUsageStatus && (
               <a
-                className="header-project-button header-token-link"
+                className={`header-project-button header-token-link is-${tokenUsageBadgeState.tone}`}
                 href={tokenRankingUrl}
                 target="_blank"
                 rel="noreferrer"
                 aria-label={text("看看大家用了多少 Token", "See others' token usage")}
-                title={text("看看大家用了多少 Token", "See others' token usage")}
+                title={`${text("看看大家用了多少 Token", "See others' token usage")} · ${tokenUsageBadgeState.title}`}
               >
                 <span className="header-token-link-label">{text("Token 榜单", "Token ranking")}</span>
-                <span className="header-token-link-badge">{text("NEW", "NEW")}</span>
+                <span className="header-token-link-badge">
+                  <i className="header-token-link-dot" aria-hidden="true" />
+                  {tokenUsageBadgeState.label}
+                </span>
                 <LinearIcon name="openExternal" />
               </a>
             )}
@@ -4051,7 +4092,6 @@ export function App() {
           <DashboardView
             key={selectedProjectId}
             projectId={selectedProjectId}
-            projectCreatedAt={selectedProject?.createdAt ?? null}
             isAllProjects={isAllProjects}
             tasks={tasks}
             presentations={taskPresentations}
