@@ -256,6 +256,14 @@ export class CodexSessionUsageCollector {
     ));
   }
 
+  async status() {
+    return this.collector.status();
+  }
+
+  async flush() {
+    return this.collector.flush();
+  }
+
   async close() {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;

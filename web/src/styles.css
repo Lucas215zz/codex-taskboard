@@ -10537,6 +10537,9 @@ kbd {
 
 .header-token-link-badge {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 2px 5px;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.24);
@@ -10545,4 +10548,43 @@ kbd {
   font-weight: 700;
   letter-spacing: 0.6px;
   line-height: 1;
+}
+
+.header-token-link-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.header-token-link.is-ok .header-token-link-badge {
+  background: rgba(16, 185, 129, 0.32);
+}
+
+.header-token-link.is-ok .header-token-link-dot {
+  background: #6ee7b7;
+}
+
+.header-token-link.is-warn .header-token-link-badge {
+  background: rgba(245, 158, 11, 0.34);
+}
+
+.header-token-link.is-warn .header-token-link-dot {
+  background: #fcd34d;
+}
+
+.header-token-link.is-error .header-token-link-badge {
+  background: rgba(239, 68, 68, 0.36);
+}
+
+.header-token-link.is-error .header-token-link-dot {
+  background: #fecaca;
+}
+
+.header-token-link.is-idle .header-token-link-badge {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.header-token-link.is-idle .header-token-link-dot {
+  background: rgba(255, 255, 255, 0.65);
 }
