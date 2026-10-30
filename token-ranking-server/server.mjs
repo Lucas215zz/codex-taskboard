@@ -14,6 +14,12 @@ const maxBodyBytes = 2 * 1024 * 1024;
 // One account can be connected from several machines. Every login/connect issues
 // a new token, so keep a generous history instead of evicting older machines.
 const MAX_TOKENS_PER_USER = 200;
+// 管理员后台：用环境变量配置的管理员账号登录后，可查看用户并重置密码。
+// 管理员密码未设置时，后台登录接口直接返回 503，不影响普通用户与榜单。
+const adminUsername = process.env.TOKEN_RANKING_ADMIN_USERNAME ?? "admin";
+const adminPassword = process.env.TOKEN_RANKING_ADMIN_PASSWORD ?? "";
+const adminTokenTtlMs = 12 * 60 * 60 * 1000;
+const adminSessions = new Map(); // tokenHash -> 过期时间(ms)
 
 let database = null;
 let writeQueue = Promise.resolve();
@@ -240,6 +246,52 @@ function publicUser(user) {
   return { id: user.id, username: user.username, displayName: user.displayName };
 }
 
+// ---------------------------------------------------------------- 管理员
+function adminPasswordMatches(password) {
+  if (!adminPassword) return false;
+  const a = Buffer.from(createHash("sha256").update(String(password)).digest("hex"), "hex");
+  const b = Buffer.from(createHash("sha256").update(adminPassword).digest("hex"), "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function issueAdminSession() {
+  const token = randomBytes(32).toString("base64url");
+  adminSessions.set(tokenHash(token), Date.now() + adminTokenTtlMs);
+  return token;
+}
+
+function adminSessionValid(request) {
+  const token = bearerToken(request);
+  if (!token) return false;
+  const hash = tokenHash(token);
+  const expiresAt = adminSessions.get(hash);
+  if (!expiresAt) return false;
+  if (Date.now() > expiresAt) {
+    adminSessions.delete(hash);
+    return false;
+  }
+  return true;
+}
+
+function adminUserView(user) {
+  const total = database.totals[user.id] ?? emptyTotal();
+  const tokens = Array.isArray(user.tokens) ? user.tokens : [];
+  const last = tokens.reduce((latest, entry) => {
+    const value = Date.parse(entry.createdAt || "") || 0;
+    return value > latest ? value : latest;
+  }, 0);
+  return {
+    id: user.id,
+    username: user.username,
+    displayName: user.displayName,
+    createdAt: user.createdAt ?? null,
+    tokenCount: tokens.length,
+    lastTokenAt: last ? new Date(last).toISOString() : null,
+    totalTokens: total.totalTokens,
+    eventCount: total.eventCount,
+  };
+}
+
 function rankings() {
   return database.users
     .map((user) => ({
@@ -371,8 +423,72 @@ async function handle(request, response) {
     `);
     return;
   }
+  // ---------------------------------------------------------------- 管理员后台接口
+  if (request.method === "POST" && url.pathname === "/api/admin/login") {
+    if (!adminPassword) {
+      json(response, 503, { error: "管理员密码未配置（服务端需设置 TOKEN_RANKING_ADMIN_PASSWORD）" });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const username = normalizeUsername(body?.username);
+      const password = typeof body?.password === "string" ? body.password : "";
+      if (username !== adminUsername || !adminPasswordMatches(password)) {
+        json(response, 401, { error: "管理员账号或密码错误" });
+        return;
+      }
+      json(response, 200, { token: issueAdminSession(), username: adminUsername });
+    } catch (error) {
+      json(response, 400, { error: error.message });
+    }
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/admin/users") {
+    if (!adminSessionValid(request)) {
+      json(response, 401, { error: "需要管理员登录" });
+      return;
+    }
+    const users = database.users
+      .map(adminUserView)
+      .sort((left, right) => (Date.parse(right.createdAt || "") || 0) - (Date.parse(left.createdAt || "") || 0));
+    json(response, 200, { users });
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/admin/users/reset-password") {
+    if (!adminSessionValid(request)) {
+      json(response, 401, { error: "需要管理员登录" });
+      return;
+    }
+    try {
+      const body = await readJson(request);
+      const username = normalizeUsername(body?.username);
+      const newPassword = typeof body?.newPassword === "string" ? body.newPassword : "";
+      const user = database.users.find((candidate) => candidate.username === username);
+      if (!user) {
+        json(response, 404, { error: "用户不存在" });
+        return;
+      }
+      if (newPassword.length < 8 || newPassword.length > 256) {
+        json(response, 400, { error: "密码需要是 8-256 位" });
+        return;
+      }
+      const { salt, hash } = hashPassword(newPassword);
+      user.passwordSalt = salt;
+      user.passwordHash = hash;
+      user.tokens = [];
+      await persistDatabase();
+      json(response, 200, { ok: true, user: publicUser(user) });
+    } catch (error) {
+      json(response, 400, { error: error.message });
+    }
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/") {
     html(response, 200, await rankingPage());
+    return;
+  }
+  if (request.method === "GET" && (url.pathname === "/admin" || url.pathname === "/admin/")) {
+    html(response, 200, await readFile(path.join(publicDirectory, "admin.html"), "utf8"));
     return;
   }
   if (request.method === "GET" && url.pathname === "/health") {
