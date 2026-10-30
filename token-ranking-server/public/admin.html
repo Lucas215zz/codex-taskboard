@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Token 榜单 · 管理员后台</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f7f3e9;
+      --muted: #a5a6b2;
+      --faint: #7a7c88;
+      --gold: #ffd166;
+      --mint: #6ee7c8;
+      --line: rgba(255, 255, 255, 0.1);
+      --line-strong: rgba(255, 255, 255, 0.18);
+      --danger: #ff8a8a;
+      --font-body: "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      --font-mono: "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      margin: 0; min-height: 100vh; background: #0b0d11; color: var(--ink);
+      font-family: var(--font-body); -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--mint); }
+    header.top {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 20px 28px; border-bottom: 1px solid var(--line);
+      position: sticky; top: 0; background: rgba(11, 13, 17, 0.92); backdrop-filter: blur(8px); z-index: 10;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand h1 { margin: 0; font-size: 17px; letter-spacing: 0.3px; }
+    .brand .tag {
+      font-size: 11px; color: var(--gold); border: 1px solid var(--line-strong);
+      padding: 3px 9px; border-radius: 999px;
+    }
+    .toolbar { display: flex; gap: 10px; align-items: center; }
+    main { max-width: 1080px; margin: 0 auto; padding: 28px; }
+    .button {
+      font: inherit; font-size: 13px; cursor: pointer; border-radius: 10px;
+      padding: 9px 16px; border: 1px solid var(--line-strong); background: transparent; color: var(--ink);
+      transition: border-color .15s, background .15s;
+    }
+    .button:hover { border-color: var(--mint); }
+    .button.primary { background: var(--gold); color: #1a1508; border-color: var(--gold); font-weight: 600; }
+    .button.primary:hover { filter: brightness(1.06); }
+    .button.ghost { color: var(--muted); }
+    .button.small { padding: 6px 12px; font-size: 12px; border-radius: 8px; }
+    .button:disabled { opacity: .55; cursor: not-allowed; }
+
+    /* login */
+    .login-wrap { min-height: calc(100vh - 90px); display: grid; place-items: center; }
+    .login-card {
+      width: 100%; max-width: 380px; padding: 30px;
+      border: 1px solid var(--line); border-radius: 18px;
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+    }
+    .login-card h2 { margin: 0 0 6px; font-size: 20px; }
+    .login-card p.sub { margin: 0 0 22px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .field { display: grid; gap: 7px; margin-bottom: 16px; color: var(--muted); font-size: 12px; }
+    .field input {
+      font: inherit; font-size: 14px; color: var(--ink); background: #12151c;
+      border: 1px solid var(--line-strong); border-radius: 10px; padding: 11px 13px;
+    }
+    .field input:focus { outline: none; border-color: var(--mint); }
+    .form-msg { min-height: 18px; font-size: 12px; color: var(--danger); margin: 4px 0 12px; }
+
+    /* console */
+    .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 22px; }
+    .stat { border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; background: rgba(255,255,255,.02); }
+    .stat .k { color: var(--muted); font-size: 12px; }
+    .stat .v { font-size: 24px; font-weight: 600; margin-top: 6px; font-family: var(--font-mono); }
+    .panel { border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+    .panel-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--line); }
+    .panel-head h2 { margin: 0; font-size: 15px; }
+    .panel-head .hint { color: var(--faint); font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    th { color: var(--muted); font-weight: 500; font-size: 12px; background: rgba(255,255,255,.02); }
+    tbody tr:hover { background: rgba(255,255,255,.03); }
+    td.num, th.num { text-align: right; font-family: var(--font-mono); }
+    td.mono { font-family: var(--font-mono); color: var(--muted); }
+    .empty { padding: 40px; text-align: center; color: var(--muted); }
+    .table-scroll { overflow-x: auto; }
+
+    /* modal */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; padding: 20px; z-index: 50; }
+    .modal { width: 100%; max-width: 400px; border: 1px solid var(--line-strong); border-radius: 16px; background: #10131a; padding: 24px; }
+    .modal h3 { margin: 0 0 4px; font-size: 17px; }
+    .modal p.who { margin: 0 0 18px; color: var(--muted); font-size: 12px; }
+    .modal .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+
+    #toast {
+      position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
+      background: #1b2029; border: 1px solid var(--line-strong); color: var(--ink);
+      padding: 11px 18px; border-radius: 10px; font-size: 13px; opacity: 0; pointer-events: none;
+      transition: opacity .2s, transform .2s; z-index: 80;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
+    #toast.err { border-color: var(--danger); color: var(--danger); }
+    @media (max-width: 640px) {
+      .stats { grid-template-columns: 1fr; }
+      main { padding: 18px; }
+      header.top { padding: 16px 18px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1>Token 榜单 · 管理员后台</h1>
+      <span class="tag">ADMIN</span>
+    </div>
+    <div class="toolbar" id="toolbar" hidden>
+      <button class="button ghost small" id="refresh">刷新</button>
+      <button class="button ghost small" id="logout">退出登录</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="login-wrap" id="login-view">
+      <form class="login-card" id="login-form">
+        <h2>管理员登录</h2>
+        <p class="sub">登录后可查看注册用户信息，并重置用户密码。</p>
+        <label class="field">管理员账号
+          <input id="admin-username" name="username" autocomplete="username" placeholder="admin" required />
+        </label>
+        <label class="field">管理员密码
+          <input id="admin-password" name="password" type="password" autocomplete="current-password" placeholder="管理员密码" required />
+        </label>
+        <div class="form-msg" id="login-msg"></div>
+        <button class="button primary" type="submit" id="login-submit" style="width:100%">登录</button>
+      </form>
+    </section>
+
+    <section id="console-view" hidden>
+      <div class="stats">
+        <div class="stat"><div class="k">注册用户</div><div class="v" id="stat-users">–</div></div>
+        <div class="stat"><div class="k">累计 Token</div><div class="v" id="stat-tokens">–</div></div>
+        <div class="stat"><div class="k">累计事件</div><div class="v" id="stat-events">–</div></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>注册用户</h2>
+          <span class="hint" id="updated-at"></span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>显示名</th>
+                <th>注册时间</th>
+                <th class="num">Token 总数</th>
+                <th class="num">事件数</th>
+                <th class="num">凭证数</th>
+                <th>最近使用</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="user-rows"></tbody>
+          </table>
+          <div class="empty" id="empty" hidden>还没有注册用户</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="overlay" id="modal" hidden>
+    <div class="modal">
+      <h3>重置用户密码</h3>
+      <p class="who" id="modal-who"></p>
+      <label class="field">新密码（8-256 位）
+        <input id="modal-password" type="password" autocomplete="new-password" placeholder="输入新密码" minlength="8" />
+      </label>
+      <div class="form-msg" id="modal-msg"></div>
+      <div class="actions">
+        <button class="button ghost" type="button" id="modal-cancel">取消</button>
+        <button class="button primary" type="button" id="modal-confirm">确认重置</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
+    const adminTokenKey = "token-ranking-admin-token";
+    const state = { token: sessionStorage.getItem(adminTokenKey) || "", users: [], resetTarget: null };
+    const $ = (id) => document.getElementById(id);
+
+    function toast(message, isError) {
+      const el = $("toast");
+      el.textContent = message;
+      el.className = "show" + (isError ? " err" : "");
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => { el.className = ""; }, 2600);
+    }
+
+    function fmtTime(value) {
+      if (!value) return "—";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return "—";
+      const p = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+    }
+    function fmtNum(value) {
+      return (Number(value) || 0).toLocaleString("zh-CN");
+    }
+
+    async function api(path, options = {}) {
+      const headers = {
+        ...(options.body ? { "content-type": "application/json" } : {}),
+        ...(state.token ? { authorization: `Bearer ${state.token}` } : {}),
+        ...(options.headers || {}),
+      };
+      const response = await fetch(path, { ...options, headers });
+      let data = {};
+      try { data = await response.json(); } catch { data = {}; }
+      if (!response.ok) {
+        if (response.status === 401 && state.token) { logout(true); }
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+      return data;
+    }
+
+    function showLogin() {
+      $("login-view").hidden = false;
+      $("console-view").hidden = true;
+      $("toolbar").hidden = true;
+    }
+    function showConsole() {
+      $("login-view").hidden = true;
+      $("console-view").hidden = false;
+      $("toolbar").hidden = false;
+    }
+
+    function logout(silent) {
+      state.token = "";
+      state.users = [];
+      sessionStorage.removeItem(adminTokenKey);
+      showLogin();
+      if (!silent) toast("已退出登录");
+    }
+
+    function renderUsers() {
+      const rows = $("user-rows");
+      rows.innerHTML = "";
+      const totalTokens = state.users.reduce((sum, u) => sum + (Number(u.totalTokens) || 0), 0);
+      const totalEvents = state.users.reduce((sum, u) => sum + (Number(u.eventCount) || 0), 0);
+      $("stat-users").textContent = fmtNum(state.users.length);
+      $("stat-tokens").textContent = fmtNum(totalTokens);
+      $("stat-events").textContent = fmtNum(totalEvents);
+      $("updated-at").textContent = "更新于 " + fmtTime(new Date().toISOString());
+      $("empty").hidden = state.users.length !== 0;
+
+      for (const u of state.users) {
+        const tr = document.createElement("tr");
+        const cells = [
+          ["", u.username],
+          ["", u.displayName || "—"],
+          ["mono", fmtTime(u.createdAt)],
+          ["num", fmtNum(u.totalTokens)],
+          ["num", fmtNum(u.eventCount)],
+          ["num", fmtNum(u.tokenCount)],
+          ["mono", fmtTime(u.lastTokenAt)],
+        ];
+        for (const [cls, text] of cells) {
+          const td = document.createElement("td");
+          if (cls) td.className = cls;
+          td.textContent = text;
+          tr.appendChild(td);
+        }
+        const actionTd = document.createElement("td");
+        const btn = document.createElement("button");
+        btn.className = "button small";
+        btn.textContent = "重置密码";
+        btn.addEventListener("click", () => openReset(u.username));
+        actionTd.appendChild(btn);
+        tr.appendChild(actionTd);
+        rows.appendChild(tr);
+      }
+    }
+
+    async function loadUsers() {
+      try {
+        const data = await api("/api/admin/users");
+        state.users = Array.isArray(data.users) ? data.users : [];
+        renderUsers();
+      } catch (error) {
+        toast(error.message, true);
+      }
+    }
+
+    function openReset(username) {
+      state.resetTarget = username;
+      $("modal-who").textContent = "用户：" + username;
+      $("modal-password").value = "";
+      $("modal-msg").textContent = "";
+      $("modal").hidden = false;
+      setTimeout(() => $("modal-password").focus(), 30);
+    }
+    function closeReset() {
+      $("modal").hidden = true;
+      state.resetTarget = null;
+    }
+
+    async function confirmReset() {
+      const username = state.resetTarget;
+      const newPassword = $("modal-password").value;
+      if (!username) return;
+      if (newPassword.length < 8 || newPassword.length > 256) {
+        $("modal-msg").textContent = "密码需要是 8-256 位";
+        return;
+      }
+      $("modal-confirm").disabled = true;
+      try {
+        await api("/api/admin/users/reset-password", {
+          method: "POST",
+          body: JSON.stringify({ username, newPassword }),
+        });
+        closeReset();
+        toast("已重置 " + username + " 的密码");
+        await loadUsers();
+      } catch (error) {
+        $("modal-msg").textContent = error.message;
+      } finally {
+        $("modal-confirm").disabled = false;
+      }
+    }
+
+    $("login-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      $("login-msg").textContent = "";
+      $("login-submit").disabled = true;
+      try {
+        const data = await api("/api/admin/login", {
+          method: "POST",
+          body: JSON.stringify({ username: $("admin-username").value, password: $("admin-password").value }),
+        });
+        state.token = data.token;
+        sessionStorage.setItem(adminTokenKey, state.token);
+        $("admin-password").value = "";
+        showConsole();
+        await loadUsers();
+      } catch (error) {
+        $("login-msg").textContent = error.message;
+      } finally {
+        $("login-submit").disabled = false;
+      }
+    });
+
+    $("refresh").addEventListener("click", () => { loadUsers(); toast("已刷新"); });
+    $("logout").addEventListener("click", () => logout(false));
+    $("modal-cancel").addEventListener("click", closeReset);
+    $("modal-confirm").addEventListener("click", confirmReset);
+    $("modal").addEventListener("click", (event) => { if (event.target === $("modal")) closeReset(); });
+    $("modal-password").addEventListener("keydown", (event) => { if (event.key === "Enter") confirmReset(); });
+
+    // 启动：有会话则直接进控制台
+    if (state.token) {
+      showConsole();
+      loadUsers();
+    } else {
+      showLogin();
+    }
+  </script>
+</body>
+</html>
